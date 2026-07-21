@@ -106,13 +106,14 @@
     repeating-linear-gradient(90deg,transparent,transparent 23px,rgba(0,0,0,.03) 24px),
     var(--paper);
   }
-  .view > div{position:absolute;inset:0}
+  #view2d,#view3d{position:absolute;inset:0}
   #view3d{display:none}
   canvas{display:block}
   #svg2d{width:100%;height:100%}
   .legend{
-    position:absolute;left:14px;bottom:14px;background:var(--panel);border:1px solid var(--line);
+    position:absolute;left:14px;top:14px;background:var(--panel);border:1px solid var(--line);
     border-radius:8px;padding:10px 13px;font-size:11px;color:var(--ink-soft);display:flex;flex-direction:column;gap:6px;
+    max-width:250px;
   }
   .legend .li{display:flex;align-items:center;gap:7px}
   .swatch{width:13px;height:13px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.15)}
@@ -120,6 +121,28 @@
     position:absolute;right:14px;bottom:14px;background:var(--panel);border:1px solid var(--line);
     border-radius:8px;padding:8px 12px;font-size:11px;color:var(--ink-soft);
   }
+  /* zoom controls in toolbar */
+  .zoomctl{display:flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:7px;
+    background:var(--paper);padding:2px;}
+  .zoomctl button{width:26px;height:24px;border:none;background:none;cursor:pointer;font-size:14px;
+    color:var(--ink);border-radius:5px;font-family:inherit;line-height:1;}
+  .zoomctl button:hover{background:var(--line-soft)}
+  .zoomctl #zoomVal{font-family:var(--mono);font-size:11px;color:var(--ink-soft);min-width:38px;text-align:center}
+  /* on-screen nudge pad (5mm fine adjust of selected part) */
+  .nudgepad{
+    position:absolute;right:14px;bottom:14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;
+    box-shadow:0 3px 12px rgba(0,0,0,.08);text-align:center;
+  }
+  .nudge-head{font-size:11px;color:var(--ink-soft);margin-bottom:5px}
+  .nudge-head b{color:var(--accent);font-size:12px;margin-right:6px}
+  .nudge-grid{display:grid;grid-template-columns:repeat(3,30px);grid-template-rows:repeat(3,26px);
+    grid-template-areas:". up ." "lf md rt" ". dn .";gap:2px;align-items:center;justify-items:center}
+  .nudge-grid button{width:30px;height:26px;border:1px solid var(--line);background:var(--paper);
+    border-radius:6px;cursor:pointer;color:var(--ink);font-size:11px;font-family:inherit}
+  .nudge-grid button:hover:not(:disabled){background:var(--accent);color:#fff;border-color:var(--accent)}
+  .nudge-grid button:disabled{opacity:.28;cursor:default}
+  .nudge-grid .nstep{grid-area:md;font-family:var(--mono);font-size:10px;color:var(--ink-soft)}
   /* ---- right report drawer (part list) ---- */
   .report{
     width:0;transition:width .18s;border-left:1px solid var(--line);background:var(--panel);
@@ -147,6 +170,18 @@
   .bar > i{display:block;height:100%;border-radius:5px}
   .strength p{font-size:11px;color:var(--ink-soft);line-height:1.6;margin:8px 0 0}
   .note{font-size:11px;color:var(--warn);margin-top:8px;display:flex;gap:6px;line-height:1.5}
+  /* editable part-list cells */
+  td.ro{font-family:var(--mono);text-align:right;color:var(--ink-soft)}
+  .dcell{width:52px;font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink);
+    border:1px solid var(--line);background:var(--paper);border-radius:4px;padding:3px 5px}
+  .dcell:focus{outline:none;border-color:var(--accent);background:#fff}
+  .dcell.ov{border-color:var(--accent);background:var(--accent-soft);font-weight:700}
+  .rnote{font-size:10px;color:var(--ink-soft);font-weight:400;margin-top:2px}
+  .rhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .rhead .reset{font-size:11px;color:var(--accent);cursor:pointer;background:none;
+    border:1px solid var(--line);border-radius:5px;padding:4px 9px;font-family:inherit;font-weight:600;flex:none}
+  .rhead .reset:hover:not(:disabled){background:var(--accent-soft)}
+  .rhead .reset:disabled{color:var(--ink-soft);cursor:default;opacity:.45}
   @media print{
     body *{visibility:hidden}
     #printsheet,#printsheet *{visibility:visible}
@@ -263,6 +298,12 @@
         <button id="tab3d">3D プレビュー</button>
       </div>
       <span class="pill" id="sizePill">— × — × —</span>
+      <div class="zoomctl" id="zoomctl" title="2D図面の拡大・縮小（ホイールでも可）">
+        <button id="zoomOut" title="縮小">−</button>
+        <span id="zoomVal">100%</span>
+        <button id="zoomIn" title="拡大">＋</button>
+        <button id="zoomRst" title="表示をリセット">⟳</button>
+      </div>
       <div class="spacer"></div>
       <button class="btn ghost" id="toggleReport">📋 部材リスト</button>
       <button class="btn" id="printBtn">🖨 設計図を印刷</button>
@@ -278,15 +319,29 @@
           <div class="li"><span class="swatch" style="background:#7d94b8"></span>背面板</div>
           <div class="li"><span class="swatch" style="background:#2f6d5b"></span>ビス位置</div>
           <div class="li"><span class="swatch" style="background:#c0492e"></span>ダボ位置</div>
-          <div class="li" style="border-top:1px solid var(--line-soft);padding-top:6px;margin-top:2px">🖐 棚板・仕切りをドラッグで移動（10mm）</div>
+          <div class="li" style="border-top:1px solid var(--line-soft);padding-top:6px;margin-top:2px">🖐 部材をドラッグで移動（10mm）／クリックで選択→矢印で微調整（5mm）</div>
         </div>
         <div class="hint3d" id="hint3d" style="display:none">ドラッグで回転 / ホイールでズーム</div>
+        <!-- 5mm fine-adjust pad for the selected part -->
+        <div class="nudgepad" id="nudgepad" style="display:none">
+          <div class="nudge-head"><b id="nudgeName">—</b><span id="nudgePos"></span></div>
+          <div class="nudge-grid">
+            <button id="nd_up" style="grid-area:up" title="上へ 5mm">▲</button>
+            <button id="nd_left" style="grid-area:lf" title="左へ 5mm">◀</button>
+            <span class="nstep">5mm</span>
+            <button id="nd_right" style="grid-area:rt" title="右へ 5mm">▶</button>
+            <button id="nd_down" style="grid-area:dn" title="下へ 5mm">▼</button>
+          </div>
+        </div>
       </div>
 
       <!-- part list drawer -->
       <div class="report" id="report">
         <div class="report-inner">
-          <div class="rhead"><h2>部材リスト</h2><p id="rsub">— parts</p></div>
+          <div class="rhead">
+            <div><h2>部材リスト</h2><p id="rsub">— parts</p></div>
+            <button class="reset" id="ovReset" title="部材ごとの手動寸法をすべて解除して自動計算に戻す">寸法を初期化</button>
+          </div>
           <table id="partTable"><tbody></tbody></table>
           <div class="strength" id="strengthBox"></div>
         </div>
@@ -303,7 +358,8 @@
 const S={H:1800,W:900,D:300,T:18,BT:6,shelves:4,dividers:1,even:true,
          join:'screw',fpj:2,load:15,mat:'ply',
          shelfY:null,  // custom shelf centre Y (from bottom); null = even
-         divX:null};   // custom divider centre X (from left); null = even
+         divX:null,    // custom divider centre X (from left); null = even
+         ov:{}};       // per-part overrides: {key:{t?,d?}} t=厚み d=奥行 (mm)
 const MAT={ply:{name:'構造用合板',E:7000,label:'合板'},
            pine:{name:'パイン集成材',E:9000,label:'パイン集成'},
            mdf:{name:'MDF',E:3600,label:'MDF'}}; // E in N/mm^2 (approx)
@@ -330,7 +386,8 @@ document.querySelectorAll('[data-step]').forEach(b=>b.addEventListener('click',(
   // changing counts invalidates any dragged positions -> back to even layout
   if(k==='shelves')S.shelfY=null;
   if(k==='dividers')S.divX=null;
-  document.getElementById(k+'_v').textContent=S[k];render();
+  clearSelIfInvalid();
+  document.getElementById(k+'_v').textContent=S[k];render();updateNudge();
 }));
 document.getElementById('evenShelf').addEventListener('change',e=>{
   S.even=e.target.checked;
@@ -355,6 +412,8 @@ function switchView(v){
   document.getElementById('view3d').style.display=is2?'none':'block';
   document.getElementById('hint3d').style.display=is2?'none':'block';
   document.getElementById('legend').style.display=is2?'flex':'none';
+  document.getElementById('zoomctl').style.visibility=is2?'visible':'hidden';
+  updateNudge();
   if(!is2){ensure3d();render3d();}
 }
 document.getElementById('toggleReport').addEventListener('click',()=>{
@@ -367,67 +426,72 @@ function sync(){
 }
 
 /* ================= geometry model ================= */
-// Divider centre X positions (from left edge, interior coords).
-// Custom (dragged) positions win; otherwise evenly split the interior.
-function dividerCenters(){
-  const {W,T}=S, inW=W-2*T, n=S.dividers;
-  if(n<=0) return [];
-  if(S.divX && S.divX.length===n) return S.divX.slice();
-  const colW=(inW-n*T)/(n+1);
-  const xs=[]; let x=T;
-  for(let i=1;i<=n;i++){ x+=colW; xs.push(x+T/2); x+=T; }
-  return xs;
+// Resolve an override for a part key/field, falling back to the auto value.
+function ovVal(key,field,auto){
+  const o=S.ov&&S.ov[key];
+  return (o && o[field]!=null && o[field]>0) ? o[field] : auto;
 }
-// Columns as {left,width} in interior coords, derived from divider positions.
-function columns(){
-  const {W,T}=S;
-  const centers=dividerCenters().slice().sort((a,b)=>a-b);
-  const faces=[T];
-  centers.forEach(c=>{faces.push(c-T/2);faces.push(c+T/2);});
-  faces.push(W-T);
-  const cols=[];
-  for(let i=0;i<faces.length;i+=2) cols.push({left:faces[i],width:Math.max(0,faces[i+1]-faces[i])});
-  return cols;
-}
-// Shelf centre Y positions (from bottom). Custom (dragged) win; else even.
-function shelfCenters(){
-  const {H,T}=S, inH=H-2*T, n=S.shelves;
-  if(n<=0) return [];
-  if(S.shelfY && S.shelfY.length===n) return S.shelfY.slice();
-  const ys=[]; for(let i=1;i<=n;i++) ys.push(T + inH*i/(n+1)); return ys;
-}
-// Returns list of parts with dims + geometry helpers, all in mm.
-function computeParts(){
+// Central geometry: effective per-part thickness (t) & depth (d), interior
+// dims, divider centres, columns and shelf centres — all override-aware.
+function geom(){
   const {H,W,D,T,BT}=S;
-  const inW=W-2*T, inH=H-2*T;
-  const cols=columns();
+  const t={top:ovVal('top','t',T),bottom:ovVal('bottom','t',T),side:ovVal('side','t',T),
+           divider:ovVal('divider','t',T),shelf:ovVal('shelf','t',T),back:ovVal('back','t',BT)};
+  const d={top:ovVal('top','d',D),bottom:ovVal('bottom','d',D),side:ovVal('side','d',D),
+           divider:ovVal('divider','d',D),shelf:ovVal('shelf','d',D)};
+  const inW=W-2*t.side, inH=H-t.top-t.bottom;
+  // divider centres (custom drag wins, else even split)
+  const n=S.dividers; let divC;
+  if(n<=0) divC=[];
+  else if(S.divX && S.divX.length===n) divC=S.divX.slice();
+  else { const colW=(inW-n*t.divider)/(n+1); divC=[]; let x=t.side;
+    for(let i=1;i<=n;i++){ x+=colW; divC.push(x+t.divider/2); x+=t.divider; } }
+  // columns from divider faces
+  const centers=divC.slice().sort((a,b)=>a-b);
+  const faces=[t.side]; centers.forEach(c=>{faces.push(c-t.divider/2);faces.push(c+t.divider/2);}); faces.push(W-t.side);
+  const cols=[]; for(let i=0;i<faces.length;i+=2) cols.push({left:faces[i],width:Math.max(0,faces[i+1]-faces[i])});
+  // shelf centres from bottom (custom drag wins, else even within interior)
+  const sn=S.shelves; let shC;
+  if(sn<=0) shC=[];
+  else if(S.shelfY && S.shelfY.length===sn) shC=S.shelfY.slice();
+  else { shC=[]; for(let i=1;i<=sn;i++) shC.push(t.bottom + inH*i/(sn+1)); }
+  return {H,W,D,t,d,inW,inH,divC,cols,shC};
+}
+// thin wrappers (used by the drag handler and 3D)
+function dividerCenters(){return geom().divC;}
+function columns(){return geom().cols;}
+function shelfCenters(){return geom().shC;}
+
+// Part list. Each part carries a stable `key` and an `edit` map describing
+// which displayed columns (w/h/t) are user-editable and which override field
+// they write to ('t'=厚み, 'd'=奥行).
+function computeParts(){
+  const G=geom(); const {H,W,t,d,inW,inH,cols}=G;
   const parts=[];
-  parts.push({grp:'構造板',name:'天板',w:W,h:D,t:T,qty:1,note:'側面板の上に載る'});
-  parts.push({grp:'構造板',name:'地板',w:W,h:D,t:T,qty:1,note:'側面板の下に載る'});
-  parts.push({grp:'構造板',name:'側面板',w:D,h:H,t:T,qty:2,note:'左右'});
+  parts.push({key:'top',   grp:'構造板',name:'天板',  w:W,      h:d.top,   t:t.top,   qty:1,note:'側面板の上に載る', edit:{h:'d',t:'t'}});
+  parts.push({key:'bottom',grp:'構造板',name:'地板',  w:W,      h:d.bottom,t:t.bottom,qty:1,note:'側面板の下に載る', edit:{h:'d',t:'t'}});
+  parts.push({key:'side',  grp:'構造板',name:'側面板',w:d.side, h:H,       t:t.side,  qty:2,note:'左右',            edit:{w:'d',t:'t'}});
   if(S.dividers>0)
-    parts.push({grp:'仕切り板',name:'縦仕切り',w:D,h:inH,t:T,qty:S.dividers,note:`${cols.length}分割`});
+    parts.push({key:'divider',grp:'仕切り板',name:'縦仕切り',w:d.divider,h:inH,t:t.divider,qty:S.dividers,note:`${cols.length}分割`, edit:{w:'d',t:'t'}});
   if(S.shelves>0){
-    // group shelves by column width (0.5mm resolution) so a design with
-    // unequal columns lists the right cut sizes.
+    // group shelves by column width (0.5mm) so unequal columns list correct sizes
     const byW={};
     cols.forEach(c=>{const k=Math.round(c.width*2)/2;byW[k]=(byW[k]||0)+S.shelves;});
     const keys=Object.keys(byW).map(Number).sort((a,b)=>b-a);
-    keys.forEach(w=>parts.push({grp:'仕切り板',name:'棚板(水平)',w:w,h:D,t:T,qty:byW[w],
-      note:keys.length>1?`幅${fmt(w)}の列 / ${S.shelves}段`:`各列 ${S.shelves} 段`}));
+    keys.forEach(w=>parts.push({key:'shelf',grp:'仕切り板',name:'棚板(水平)',w:w,h:d.shelf,t:t.shelf,qty:byW[w],
+      note:keys.length>1?`幅${fmt(w)}の列 / ${S.shelves}段`:`各列 ${S.shelves} 段`, edit:{h:'d',t:'t'}}));
   }
-  parts.push({grp:'背面板',name:'背面板',w:W,h:H,t:BT,qty:1,note:'全体を覆う / 溝または当て'});
-  return {parts,inW,inH,cols};
+  parts.push({key:'back',grp:'背面板',name:'背面板',w:W,h:H,t:t.back,qty:1,note:'全体を覆う / 溝または当て', edit:{t:'t'}});
+  return {parts,inW,inH,cols,G};
 }
 
 /* ================= strength ================= */
 // simple beam deflection of a shelf as simply supported plate strip
 function strength(){
-  const {D,T}=S;
-  const {cols}=computeParts();
-  const L=cols.length?Math.max(...cols.map(c=>c.width)):(S.W-2*T); // worst (widest) span mm
-  const b=D;                           // width mm
-  const h=T;                           // thickness mm
+  const G=geom(); const {cols,d,t}=G;
+  const L=cols.length?Math.max(...cols.map(c=>c.width)):(G.inW); // worst (widest) span mm
+  const b=d.shelf;                     // effective shelf depth mm
+  const h=t.shelf;                     // effective shelf thickness mm
   const E=MAT[S.mat].E;                // N/mm^2
   const I=b*Math.pow(h,3)/12;          // mm^4
   const Wn=S.load*9.81;                // N total, uniformly distributed
@@ -446,31 +510,35 @@ function strength(){
 
 /* ================= 2D SVG render (development / 展開図) ================= */
 const svg=document.getElementById('svg2d');
-const C_WOOD='#c69a6d', C_WOOD2='#d9b98c', C_BACK='#7d94b8',
-      C_EDGE='#8a6a44', C_LIGHT='#efe6d4', C_PAPER='#f6f3ea';
+const C_WOOD='#c69a6d', C_WOOD2='#d9b98c', C_BACK='#7d94b8', C_BACK_L='#dbe3ef',
+      C_EDGE='#8a6a44', C_LIGHT='#efe6d4', C_PAPER='#f6f3ea', C_SEL='#2f6d5b';
 // Front-view screen transform, published for the drag handler.
 let FRONT=null;
+// 2D zoom / pan and current part selection (for arrow-key / button nudging)
+let Z2=1, PX=0, PY=0, SEL=null;
+const NUDGE=5; // fine-adjust step (mm)
 
 function render2d(){
-  const {inW,inH,cols}=computeParts();
-  const {H,W,D,T,BT}=S;
+  const G=geom();
+  const {H,W,D,inW,inH,cols,divC:divCenters,shC:shelfC,t,d}=G;
+  const topT=t.top,botT=t.bottom,sideT=t.side,divT=t.divider,shT=t.shelf,bkT=t.back;
+  const shD=Math.min(d.shelf, D-bkT);        // shelf depth (butts back panel)
   const vw=svg.clientWidth||900, vh=svg.clientHeight||600;
   const pad=48;
   const gap=Math.max(60, Math.max(W,H,D)*0.10); // layout gap between views (mm)
-  // cross / development layout: top & bottom above/below front, sides left/right
-  const LW=W+2*D+2*gap, LH=H+2*D+2*gap;
-  const sc=Math.min((vw-2*pad)/LW,(vh-2*pad)/LH);
+  // third-angle development layout:  上面 / [左側面 正面 右側面 背面] / 底面
+  const LW=2*W+2*D+3*gap, LH=H+2*D+2*gap;
+  const baseSc=Math.min((vw-2*pad)/LW,(vh-2*pad)/LH);
+  const sc=baseSc;                          // base (pre-zoom); zoom via outer <g>
   const ox=(vw-LW*sc)/2, oy=(vh-LH*sc)/2;
   // view top-left anchors (layout mm, y-down)
-  const fx=D+gap, fy=D+gap;                 // front
+  const fx=D+gap, fy=D+gap;                 // front (centre column)
   const topX=fx,  topY=0;                   // top plan (back edge up)
   const botX=fx,  botY=fy+H+gap;            // bottom plan (front edge up)
   const leftX=0,  leftY=fy;                 // left side (front edge = right)
   const rightX=fx+W+gap, rightY=fy;         // right side (front edge = left)
-  const P=(lx,ly)=>[ox+lx*sc, oy+ly*sc];    // layout mm -> screen px
-
-  const divCenters=dividerCenters();
-  const shelfC=shelfCenters();
+  const backX=rightX+D+gap, backY=fy;       // rear elevation (far right)
+  const P=(lx,ly)=>[ox+lx*sc, oy+ly*sc];    // layout mm -> group px (pre-zoom)
 
   // rect in layout mm coords (y-down). extra = raw attrs (e.g. drag hooks)
   const R=(lx,ly,w,h,fill,stroke=C_EDGE,sw=1,extra='')=>{
@@ -480,60 +548,73 @@ function render2d(){
   let g='';
 
   /* ---------- FRONT elevation (正面) ---------- */
-  g+=R(fx,fy,W,T,C_WOOD);                    // top board
-  g+=R(fx,fy+H-T,W,T,C_WOOD);                // bottom board
-  g+=R(fx,fy,T,H,C_WOOD);                    // left side
-  g+=R(fx+W-T,fy,T,H,C_WOOD);               // right side
-  // dividers (draggable horizontally)
+  g+=R(fx,fy,W,topT,C_WOOD);                 // top board
+  g+=R(fx,fy+H-botT,W,botT,C_WOOD);          // bottom board
+  g+=R(fx,fy,sideT,H,C_WOOD);                // left side
+  g+=R(fx+W-sideT,fy,sideT,H,C_WOOD);        // right side
+  // dividers (draggable horizontally, selectable)
   divCenters.forEach((cxm,i)=>{
-    g+=R(fx+cxm-T/2, fy+T, T, inH, C_WOOD2, C_EDGE, 1,
+    const on=SEL&&SEL.type==='div'&&SEL.i===i;
+    g+=R(fx+cxm-divT/2, fy+topT, divT, inH, C_WOOD2, on?C_SEL:C_EDGE, on?2.5:1,
       `data-drag="div" data-i="${i}" style="cursor:ew-resize"`);
   });
   // shelves per column (draggable vertically; one row moves together)
   shelfC.forEach((yc,i)=>{
-    const lyTop=H-yc-T/2;                     // top-down local y of shelf top
+    const on=SEL&&SEL.type==='shelf'&&SEL.i===i;
+    const lyTop=H-yc-shT/2;                    // top-down local y of shelf top
     cols.forEach(c=>{
-      g+=R(fx+c.left, fy+lyTop, c.width, T, C_WOOD2, C_EDGE, 1,
+      g+=R(fx+c.left, fy+lyTop, c.width, shT, C_WOOD2, on?C_SEL:C_EDGE, on?2.5:1,
         `data-drag="shelf" data-i="${i}" style="cursor:ns-resize"`);
     });
   });
 
   /* ---------- TOP plan (上面) : back edge at top ---------- */
   g+=R(topX,topY,W,D,C_LIGHT);
-  g+=R(topX,topY,W,BT,C_BACK);               // back panel strip (rear)
-  g+=R(topX,topY,T,D,C_WOOD);                // left side
-  g+=R(topX+W-T,topY,T,D,C_WOOD);            // right side
-  divCenters.forEach(cxm=>g+=R(topX+cxm-T/2,topY,T,D,C_WOOD2));
+  g+=R(topX,topY,W,bkT,C_BACK);              // back panel strip (rear)
+  g+=R(topX,topY,sideT,D,C_WOOD);            // left side
+  g+=R(topX+W-sideT,topY,sideT,D,C_WOOD);    // right side
+  divCenters.forEach(cxm=>g+=R(topX+cxm-divT/2,topY,divT,D,C_WOOD2));
 
   /* ---------- BOTTOM plan (底面) : front edge at top ---------- */
   g+=R(botX,botY,W,D,C_LIGHT);
-  g+=R(botX,botY+D-BT,W,BT,C_BACK);          // back panel strip (rear = bottom)
-  g+=R(botX,botY,T,D,C_WOOD);
-  g+=R(botX+W-T,botY,T,D,C_WOOD);
-  divCenters.forEach(cxm=>g+=R(botX+cxm-T/2,botY,T,D,C_WOOD2));
+  g+=R(botX,botY+D-bkT,W,bkT,C_BACK);        // back panel strip (rear = bottom)
+  g+=R(botX,botY,sideT,D,C_WOOD);
+  g+=R(botX+W-sideT,botY,sideT,D,C_WOOD);
+  divCenters.forEach(cxm=>g+=R(botX+cxm-divT/2,botY,divT,D,C_WOOD2));
 
-  /* ---------- LEFT side (左側面) : front edge = right ---------- */
+  /* ---------- LEFT / RIGHT side views ---------- */
   const sideView=(bx,by,frontRight)=>{
     g+=R(bx,by,D,H,C_LIGHT);                  // side panel outline
-    g+=R(bx,by,D,T,C_WOOD);                   // top board edge
-    g+=R(bx,by+H-T,D,T,C_WOOD);               // bottom board edge
+    g+=R(bx,by,D,topT,C_WOOD);               // top board edge
+    g+=R(bx,by+H-botT,D,botT,C_WOOD);        // bottom board edge
     // back panel strip at the rear
-    g+=R(frontRight? bx : bx+D-BT, by, BT, H, C_BACK);
-    // shelves edge-on (front face open, butt to back panel)
+    g+=R(frontRight? bx : bx+D-bkT, by, bkT, H, C_BACK);
+    // shelves edge-on (butt to back panel, extend forward by shelf depth)
     shelfC.forEach(yc=>{
-      const lyTop=H-yc-T/2;
-      const sx= frontRight? bx+BT : bx;       // start behind back panel if it's on the left
-      g+=R(sx, by+lyTop, D-BT, T, C_WOOD2);
+      const lyTop=H-yc-shT/2;
+      const sx= frontRight? bx+bkT : bx+D-bkT-shD;
+      g+=R(sx, by+lyTop, shD, shT, C_WOOD2);
     });
   };
   sideView(leftX,leftY,true);                 // back panel on the left
   sideView(rightX,rightY,false);              // back panel on the right
 
-  /* ---------- fasteners on the FRONT view only ---------- */
-  const supportXs=[T/2, W-T/2, ...divCenters];
+  /* ---------- BACK elevation (背面 = 正面裏側) : mirrored L-R ---------- */
+  // carcass as seen from behind, then the back panel sheet over it
+  g+=R(backX,backY,W,topT,C_WOOD);
+  g+=R(backX,backY+H-botT,W,botT,C_WOOD);
+  g+=R(backX,backY,sideT,H,C_WOOD);
+  g+=R(backX+W-sideT,backY,sideT,H,C_WOOD);
+  divCenters.forEach(cxm=>{const mx=W-cxm; g+=R(backX+mx-divT/2,backY+topT,divT,inH,C_WOOD2);});
+  shelfC.forEach(yc=>{const lyTop=H-yc-shT/2; cols.forEach(c=>{const mLeft=W-(c.left+c.width);
+    g+=R(backX+mLeft,backY+lyTop,c.width,shT,C_WOOD2);});});
+  g+=R(backX,backY,W,H,'rgba(125,148,184,0.34)',C_BACK,1.5); // back panel overlay
+
+  /* ---------- fasteners (front + back panel screws) ---------- */
+  const supportXs=[sideT/2, W-sideT/2, ...divCenters];
   const marks=[];
   shelfC.forEach(yc=>supportXs.forEach(sx=>marks.push([sx, H-yc]))); // shelf ends
-  [[T/2,T/2],[W-T/2,T/2],[T/2,H-T/2],[W-T/2,H-T/2]].forEach(p=>marks.push(p)); // corners
+  [[sideT/2,topT/2],[W-sideT/2,topT/2],[sideT/2,H-botT/2],[W-sideT/2,H-botT/2]].forEach(p=>marks.push(p)); // corners
   const drawFastener=(cx,cy,kind)=>{
     const r=3.2;
     if(kind==='dowel')
@@ -542,23 +623,27 @@ function render2d(){
            `<line x1="${cx-r-1.5}" y1="${cy}" x2="${cx+r+1.5}" y2="${cy}" stroke="#2f6d5b" stroke-width="1"/>`+
            `<line x1="${cx}" y1="${cy-r-1.5}" x2="${cx}" y2="${cy+r+1.5}" stroke="#2f6d5b" stroke-width="1"/>`;
   };
-  let fast='', totalF=0;
-  marks.forEach(([mx,my])=>{
-    const [cx,cy]=P(fx+mx, fy+my);            // front local -> screen
-    const n=S.fpj;
-    for(let k=0;k<n;k++){
-      const kind=S.join==='both'?(k%2?'dowel':'screw'):S.join;
-      fast+=drawFastener(cx, cy+(k-(n-1)/2)*12, kind);
-      totalF++;
-    }
-  });
+  const fastenersFor=(bx,by,mirror)=>{
+    let s='';
+    marks.forEach(([mx,my])=>{
+      const [cx,cy]=P(bx+(mirror?W-mx:mx), by+my);
+      const n=S.fpj;
+      for(let k=0;k<n;k++){
+        const kind=S.join==='both'?(k%2?'dowel':'screw'):S.join;
+        s+=drawFastener(cx, cy+(k-(n-1)/2)*12, kind);
+      }
+    });
+    return s;
+  };
+  const fast=fastenersFor(fx,fy,false)+fastenersFor(backX,backY,true);
 
   /* ---------- view labels & dimensions ---------- */
   const lab=(lx,ly,txt)=>{const [x,y]=P(lx,ly);
     return `<text x="${x.toFixed(1)}" y="${(y-7).toFixed(1)}" fill="#4a544f" font-size="12" font-family="sans-serif" text-anchor="middle" font-weight="600">${txt}</text>`;};
   const labels=
     lab(fx+W/2,fy,'正面（立面）')+lab(topX+W/2,topY,'上面')+
-    lab(botX+W/2,botY,'底面')+lab(leftX+D/2,leftY,'左側面')+lab(rightX+D/2,rightY,'右側面');
+    lab(botX+W/2,botY,'底面')+lab(leftX+D/2,leftY,'左側面')+lab(rightX+D/2,rightY,'右側面')+
+    lab(backX+W/2,backY,'背面（背板）');
   const dimH_=(lx1,lx2,ly,txt)=>{const [x1,y]=P(lx1,ly),[x2]=P(lx2,ly),mx=(x1+x2)/2;
     return `<line x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#4a544f" stroke-width="1" marker-start="url(#a)" marker-end="url(#a)"/>`+
       `<text x="${mx.toFixed(1)}" y="${(y-4).toFixed(1)}" fill="#1c2321" font-size="12" font-family="monospace" text-anchor="middle" style="paint-order:stroke;stroke:${C_PAPER};stroke-width:4px">${txt}</text>`;};
@@ -570,7 +655,7 @@ function render2d(){
     dimV_(fy,fy+H,fx-gap*0.5,fmt(H))+            // H left of front
     dimV_(topY,topY+D,topX+W+gap*0.35,fmt(D));  // D right of top plan
 
-  FRONT={ox,oy,sc,fx,fy,H,W,T};
+  FRONT={ox,oy,sc,fx,fy,H,W,t,zoom:Z2,panX:PX,panY:PY};
 
   svg.innerHTML=`
     <defs>
@@ -578,43 +663,132 @@ function render2d(){
         <path d="M2,2 L8,5 L2,8" fill="none" stroke="#4a544f" stroke-width="1"/>
       </marker>
     </defs>
-    <g>${g}</g>
-    <g pointer-events="none">${labels}${dims}${fast}</g>
+    <g transform="translate(${PX.toFixed(2)},${PY.toFixed(2)}) scale(${Z2})">
+      <g>${g}</g>
+      <g pointer-events="none">${labels}${dims}${fast}</g>
+    </g>
   `;
-  return {totalF};
+  return {};
 }
 
-/* ---------- drag boards on the front view (10mm snap) ---------- */
-let dragState=null;
+/* ---------- interaction: drag parts (10mm snap), select, pan, zoom ---------- */
+let dragState=null, panState=null;
+// pointer px -> front-local mm, undoing pan+zoom then the base transform
+function localMM(px,py){
+  const {ox,oy,sc,fx,fy,zoom,panX,panY}=FRONT;
+  const gx=(px-panX)/zoom, gy=(py-panY)/zoom;   // undo zoom/pan -> group px
+  return { x:(gx-ox)/sc-fx, y:(gy-oy)/sc-fy };   // group px -> front-local mm (y top-down)
+}
 svg.addEventListener('pointerdown',e=>{
+  if(!FRONT)return;
   const t=e.target.closest('[data-drag]');
-  if(!t||!FRONT)return;
-  dragState={type:t.dataset.drag,i:+t.dataset.i};
+  if(t){                                          // grab a part: select + drag
+    dragState={type:t.dataset.drag,i:+t.dataset.i};
+    SEL={type:dragState.type,i:dragState.i};
+    updateNudge(); render();
+  }else{                                          // empty space: pan
+    panState={x:e.clientX,y:e.clientY,PX,PY};
+  }
   try{svg.setPointerCapture(e.pointerId);}catch(_){}
   e.preventDefault();
 });
 svg.addEventListener('pointermove',e=>{
-  if(!dragState||!FRONT)return;
-  const {ox,oy,sc,fx,fy,H,W,T}=FRONT;
+  if(!FRONT)return;
   const rect=svg.getBoundingClientRect();
   const px=e.clientX-rect.left, py=e.clientY-rect.top;
+  if(panState){
+    PX=panState.PX+(e.clientX-panState.x); PY=panState.PY+(e.clientY-panState.y);
+    render2d(); return;
+  }
+  if(!dragState)return;
+  const {H,W,t}=FRONT; const m=localMM(px,py);
   if(dragState.type==='shelf'){
-    const localY=(py-oy)/sc-fy;               // top-down within front
-    let yc=snap(H-localY);                     // centre from bottom, snapped 10mm
-    yc=Math.max(T+T/2, Math.min(H-T-T/2, yc));
+    let yc=snap(H-m.y);                            // centre from bottom, 10mm snap
+    yc=Math.max(t.bottom+t.shelf/2, Math.min(H-t.top-t.shelf/2, yc));
     if(!S.shelfY||S.shelfY.length!==S.shelves) S.shelfY=shelfCenters();
     S.shelfY[dragState.i]=yc;
   }else{
-    let xc=snap((px-ox)/sc-fx);
-    xc=Math.max(T+T, Math.min(W-T-T, xc));
+    let xc=snap(m.x);
+    xc=Math.max(t.side+t.divider, Math.min(W-t.side-t.divider, xc));
     if(!S.divX||S.divX.length!==S.dividers) S.divX=dividerCenters();
     S.divX[dragState.i]=xc;
   }
   render();
 });
-const endDrag=e=>{ if(dragState){dragState=null; try{svg.releasePointerCapture(e.pointerId);}catch(_){}}};
+const endDrag=e=>{ dragState=null; panState=null; try{svg.releasePointerCapture(e.pointerId);}catch(_){}};
 svg.addEventListener('pointerup',endDrag);
 svg.addEventListener('pointercancel',endDrag);
+// wheel zoom around the cursor
+svg.addEventListener('wheel',e=>{
+  if(document.getElementById('view2d').style.display==='none')return;
+  e.preventDefault();
+  const rect=svg.getBoundingClientRect();
+  zoomAt(e.clientX-rect.left, e.clientY-rect.top, e.deltaY<0?1.12:1/1.12);
+},{passive:false});
+// zoom keeping the given screen point fixed
+function zoomAt(cx,cy,f){
+  const nz=Math.max(0.3,Math.min(6,Z2*f)); const k=nz/Z2;
+  PX=cx-k*(cx-PX); PY=cy-k*(cy-PY); Z2=nz;
+  render2d(); updateZoomLabel();
+}
+function zoomReset(){ Z2=1; PX=0; PY=0; render2d(); updateZoomLabel(); }
+function updateZoomLabel(){ const el=document.getElementById('zoomVal'); if(el) el.textContent=Math.round(Z2*100)+'%'; }
+
+/* ---------- fine adjust: 5mm nudge of the selected part ---------- */
+function nudge(dx,dy){
+  if(!SEL)return;
+  const G=geom();
+  if(SEL.type==='shelf' && dy){
+    if(!S.shelfY||S.shelfY.length!==S.shelves) S.shelfY=shelfCenters();
+    let yc=S.shelfY[SEL.i]-dy*NUDGE;               // dy=-1 (up) raises the shelf
+    S.shelfY[SEL.i]=Math.max(G.t.bottom+G.t.shelf/2, Math.min(G.H-G.t.top-G.t.shelf/2, yc));
+  }else if(SEL.type==='div' && dx){
+    if(!S.divX||S.divX.length!==S.dividers) S.divX=dividerCenters();
+    let xc=S.divX[SEL.i]+dx*NUDGE;
+    S.divX[SEL.i]=Math.max(G.t.side+G.t.divider, Math.min(G.W-G.t.side-G.t.divider, xc));
+  }else return;
+  render(); updateNudge();
+}
+// keyboard arrows nudge the selection (unless typing in a field)
+addEventListener('keydown',e=>{
+  if(!SEL)return;
+  const a=document.activeElement; if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
+  if(document.getElementById('view2d').style.display==='none')return;
+  const map={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0]}[e.key];
+  if(!map)return; e.preventDefault(); nudge(map[0],map[1]);
+});
+// refresh the on-screen nudge pad (visibility, label, enabled arrows)
+function updateNudge(){
+  const pad=document.getElementById('nudgepad'); if(!pad)return;
+  const show=!!SEL && document.getElementById('view2d').style.display!=='none';
+  pad.style.display=show?'block':'none';
+  if(!show)return;
+  const G=geom();
+  let name='', pos='';
+  if(SEL.type==='shelf'){ const y=(S.shelfY&&S.shelfY[SEL.i])||G.shC[SEL.i]||0;
+    name=`棚板 #${SEL.i+1}`; pos=`下から ${fmt(y)}mm`; }
+  else { const x=(S.divX&&S.divX[SEL.i])||G.divC[SEL.i]||0;
+    name=`縦仕切り #${SEL.i+1}`; pos=`左から ${fmt(x)}mm`; }
+  document.getElementById('nudgeName').textContent=name;
+  document.getElementById('nudgePos').textContent=pos;
+  const vert=SEL.type==='shelf';
+  ['up','down'].forEach(k=>document.getElementById('nd_'+k).disabled=!vert);
+  ['left','right'].forEach(k=>document.getElementById('nd_'+k).disabled=vert);
+}
+// wire zoom + nudge controls
+document.getElementById('zoomIn').addEventListener('click',()=>zoomAt(svg.clientWidth/2,svg.clientHeight/2,1.2));
+document.getElementById('zoomOut').addEventListener('click',()=>zoomAt(svg.clientWidth/2,svg.clientHeight/2,1/1.2));
+document.getElementById('zoomRst').addEventListener('click',zoomReset);
+document.getElementById('nd_up').addEventListener('click',()=>nudge(0,-1));
+document.getElementById('nd_down').addEventListener('click',()=>nudge(0,1));
+document.getElementById('nd_left').addEventListener('click',()=>nudge(-1,0));
+document.getElementById('nd_right').addEventListener('click',()=>nudge(1,0));
+// clear a stale selection (e.g. after count changes) and refresh the pad
+function clearSelIfInvalid(){
+  if(!SEL) return;
+  if((SEL.type==='shelf' && SEL.i>=S.shelves) ||
+     (SEL.type==='div'   && SEL.i>=S.dividers)) SEL=null;
+}
 
 /* ================= 3D render ================= */
 let R3;
@@ -657,40 +831,53 @@ function board(w,h,d,color){
 }
 function render3d(){
   if(!R3)return;
-  const {H,W,D,T,BT}=S;const {inW,inH,cols}=computeParts();
+  const G=geom(); const {H,W,D,inH,cols,t,d:dep,divC,shC}=G;
   const grp=R3.grp;while(grp.children.length)grp.remove(grp.children[0]);
   const cx=-W/2,cy=-H/2,cz=-D/2; // center object
-  const add=(x,y,z,w,h,d,c)=>{const b=board(w,h,d,c);b.position.set(x+w/2+cx,y+h/2+cy,z+d/2+cz);grp.add(b);};
+  const add=(x,y,z,w,h,dp,c)=>{const b=board(w,h,dp,c);b.position.set(x+w/2+cx,y+h/2+cy,z+dp/2+cz);grp.add(b);};
   const WOOD=0xc69a6d, WOOD2=0xd9b98c, BACK=0x7d94b8;
-  // sides
-  add(0,0,0,T,H,D,WOOD);
-  add(W-T,0,0,T,H,D,WOOD);
+  // sides (effective thickness & depth)
+  add(0,0,0,t.side,H,dep.side,WOOD);
+  add(W-t.side,0,0,t.side,H,dep.side,WOOD);
   // top/bottom
-  add(0,H-T,0,W,T,D,WOOD);
-  add(0,0,0,W,T,D,WOOD);
-  // back
-  add(0,0,0,W,H,BT,BACK);
+  add(0,H-t.top,0,W,t.top,dep.top,WOOD);
+  add(0,0,0,W,t.bottom,dep.bottom,WOOD);
+  // back panel at the rear
+  add(0,0,D-t.back,W,H,t.back,BACK);
   // dividers (from shared geometry)
-  dividerCenters().forEach(cxm=>add(cxm-T/2,T,0,T,inH,D,WOOD2));
-  // shelves (from shared geometry — mirrors the 2D layout)
-  shelfCenters().forEach(yc=>{cols.forEach(c=>add(c.left,yc-T/2,0,c.width,T,D,WOOD2));});
+  divC.forEach(cxm=>add(cxm-t.divider/2,t.bottom,0,t.divider,inH,dep.divider,WOOD2));
+  // shelves — butt to back panel, depth = effective shelf depth
+  const shD=Math.min(dep.shelf, D-t.back);
+  shC.forEach(yc=>{cols.forEach(c=>add(c.left,yc-t.shelf/2,D-t.back-shD,c.width,t.shelf,shD,WOOD2));});
   R3.place();
 }
 
 /* ================= report ================= */
-function renderReport(){
+// one W/H/T cell: editable <input> when the part maps that column to an
+// override field ('t'=厚み / 'd'=奥行), otherwise a read-only derived value.
+function partCell(p,col){
+  const field=p.edit&&p.edit[col];
+  if(!field) return `<td class="ro">${fmt(p[col])}</td>`;
+  const isOv=!!(S.ov[p.key]&&S.ov[p.key][field]!=null&&S.ov[p.key][field]>0);
+  const label=field==='t'?'厚み':'奥行';
+  return `<td style="text-align:right"><input class="dcell${isOv?' ov':''}" type="number" step="0.5" min="0" inputmode="decimal" value="${fmt(p[col])}" data-key="${p.key}" data-field="${field}" title="${p.name}の${label}（${isOv?'手動値・空欄で自動に戻る':'自動値・入力で上書き'}）"></td>`;
+}
+function renderPartTable(){
   const {parts}=computeParts();
   let rows='',last='',total=0;
   parts.forEach(p=>{
-    if(p.grp!==last){rows+=`<tr class="grp"><td colspan="4">${p.grp}</td></tr>`;last=p.grp;}
-    const dim=`${fmt(p.w)}×${fmt(p.h)}×${fmt(p.t)}`;
-    rows+=`<tr><td>${p.name}</td><td class="num">${dim}</td><td class="num">${p.qty}</td><td>${p.note}</td></tr>`;
+    if(p.grp!==last){rows+=`<tr class="grp"><td colspan="5">${p.grp}</td></tr>`;last=p.grp;}
+    rows+=`<tr><td>${p.name}<div class="rnote">${p.note}</div></td>${partCell(p,'w')}${partCell(p,'h')}${partCell(p,'t')}<td class="num">${p.qty}</td></tr>`;
     total+=p.qty;
   });
   document.querySelector('#partTable tbody').innerHTML=
-    `<tr><th>部材</th><th style="text-align:right">寸法 W×H×T</th><th style="text-align:right">数</th><th>備考</th></tr>`+rows;
+    `<tr><th>部材</th><th style="text-align:right">W</th><th style="text-align:right">H</th><th style="text-align:right">厚</th><th style="text-align:right">数</th></tr>`+rows;
   document.getElementById('rsub').textContent=`${total} 枚 / ${MAT[S.mat].name}`;
-  // strength
+  const anyOv=Object.keys(S.ov).some(k=>S.ov[k]&&Object.values(S.ov[k]).some(v=>v!=null&&v>0));
+  const rb=document.getElementById('ovReset'); if(rb) rb.disabled=!anyOv;
+}
+function renderReport(){ renderPartTable(); renderStrength(); }
+function renderStrength(){
   const st=strength();
   const pct=Math.min(100,st.ratio/500*100);
   const barc=st.tag==='ok'?'#2f6d5b':'#c0492e';
@@ -717,9 +904,11 @@ function buildPrint(){
       ? `${fmt(Math.min(...cols.map(c=>c.width)))}〜${fmt(Math.max(...cols.map(c=>c.width)))}`
       : fmt(cols[0].width)):'—';
   const st=strength();
-  // capture svg
+  // capture svg at 100% (ignore on-screen zoom/pan so the whole drawing prints)
+  const _z=Z2,_px=PX,_py=PY; Z2=1;PX=0;PY=0;
   render2d();
   const svgHtml=svg.outerHTML.replace('id="svg2d"','width="520" height="640" viewBox="0 0 '+ (svg.clientWidth||900)+' '+(svg.clientHeight||600)+'"');
+  Z2=_z;PX=_px;PY=_py; render2d();
   let rows='',last='';
   parts.forEach(p=>{
     if(p.grp!==last){rows+=`<tr style="background:#e3efe9"><td colspan="5" style="font-weight:700;color:#2f6d5b;padding:4px 8px">${p.grp}</td></tr>`;last=p.grp;}
@@ -770,17 +959,42 @@ function buildPrint(){
   window.print();
 }
 
+/* ================= part-list inline editing ================= */
+function renderDrawings(){
+  sync();
+  if(document.getElementById('view2d').style.display!=='none') render2d();
+  else render3d();
+}
+const ptable=document.getElementById('partTable');
+// live edit while typing: update override + drawings/strength, keep table (focus)
+ptable.addEventListener('input',e=>{
+  const inp=e.target.closest('.dcell'); if(!inp)return;
+  const key=inp.dataset.key, field=inp.dataset.field, v=parseFloat(inp.value);
+  S.ov[key]=S.ov[key]||{};
+  if(inp.value.trim()===''||isNaN(v)||v<=0) delete S.ov[key][field];
+  else S.ov[key][field]=v;
+  inp.classList.toggle('ov', S.ov[key][field]!=null);
+  renderDrawings(); renderStrength();
+});
+// commit on blur/enter: normalise + full rebuild so derived cells refresh
+ptable.addEventListener('change',e=>{
+  const inp=e.target.closest('.dcell'); if(!inp)return;
+  const key=inp.dataset.key;
+  if(S.ov[key]&&Object.keys(S.ov[key]).length===0) delete S.ov[key];
+  render();
+});
+document.getElementById('ovReset').addEventListener('click',()=>{ S.ov={}; render(); });
+
 /* ================= master render ================= */
 function render(){
   document.getElementById('shelves_v').textContent=S.shelves;
   document.getElementById('dividers_v').textContent=S.dividers;
   document.getElementById('fpj_v').textContent=S.fpj;
-  sync();
-  if(document.getElementById('view2d').style.display!=='none') render2d();
-  else render3d();
+  renderDrawings();
   renderReport();
+  updateNudge();
 }
-sync();render();
+sync();render();updateZoomLabel();
 window.addEventListener('resize',()=>{if(document.getElementById('view2d').style.display!=='none')render2d();});
 </script>
 </body>
