@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>本棚設計 — Shelf Studio</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --ink:#1c2321;--ink-soft:#4a544f;--line:#d8d2c4;--line-soft:#e8e3d6;
+    --paper:#f6f3ea;--panel:#fffdf7;--wood:#c69a6d;--wood-edge:#a97c4e;
+    --accent:#2f6d5b;--accent-soft:#e3efe9;--warn:#c0492e;--warn-soft:#f6e3dd;
+    --ok:#2f6d5b;
+    --grain:#b98a5c;
+    --mono:"SFMono-Regular",ui-monospace,"DejaVu Sans Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",-apple-system,system-ui,sans-serif;
+    background:var(--paper);color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{display:grid;grid-template-columns:340px 1fr;height:100vh}
+  /* ---- panel ---- */
+  .panel{
+    background:var(--panel);border-right:1px solid var(--line);
+    overflow-y:auto;padding:0;
+  }
+  .brand{
+    padding:22px 22px 18px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--panel);z-index:3;
+  }
+  .brand h1{
+    font-size:19px;margin:0;letter-spacing:.02em;font-weight:700;
+    display:flex;align-items:center;gap:9px;
+  }
+  .brand .mark{
+    width:22px;height:22px;flex:none;border:2px solid var(--ink);border-radius:2px;
+    position:relative;
+  }
+  .brand .mark::before,.brand .mark::after{
+    content:"";position:absolute;left:2px;right:2px;height:2px;background:var(--ink);
+  }
+  .brand .mark::before{top:6px}.brand .mark::after{top:12px}
+  .brand p{margin:6px 0 0 31px;font-size:11px;color:var(--ink-soft);letter-spacing:.14em;text-transform:uppercase}
+  .group{border-bottom:1px solid var(--line-soft);padding:16px 22px}
+  .group h2{
+    font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);
+    margin:0 0 13px;font-weight:700;display:flex;align-items:center;gap:8px;
+  }
+  .group h2 .n{
+    font-family:var(--mono);font-size:10px;color:#fff;background:var(--accent);
+    border-radius:3px;padding:1px 5px;font-weight:600;
+  }
+  .field{margin-bottom:13px}
+  .field:last-child{margin-bottom:0}
+  .field label{display:block;font-size:12px;color:var(--ink-soft);margin-bottom:5px;font-weight:600}
+  .row-in{display:flex;align-items:center;gap:8px}
+  .row-in input[type=number]{
+    width:100%;font-family:var(--mono);font-size:14px;color:var(--ink);
+    border:1px solid var(--line);background:var(--paper);border-radius:6px;
+    padding:8px 10px;text-align:right;
+  }
+  .row-in input:focus{outline:none;border-color:var(--accent);background:#fff}
+  .row-in .unit{font-size:11px;color:var(--ink-soft);font-family:var(--mono);flex:none;width:22px}
+  .slider{width:100%;margin:2px 0 0;accent-color:var(--accent)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{
+    flex:1;border:none;background:var(--paper);padding:7px 4px;font-size:12px;cursor:pointer;
+    color:var(--ink-soft);font-weight:600;font-family:inherit;
+  }
+  .seg button.on{background:var(--accent);color:#fff}
+  .stepper{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .stepper button{width:34px;border:none;background:var(--paper);font-size:16px;cursor:pointer;color:var(--ink);padding:7px 0}
+  .stepper button:hover{background:var(--line-soft)}
+  .stepper .val{flex:1;text-align:center;font-family:var(--mono);font-size:14px}
+  .chk{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-soft);cursor:pointer;font-weight:600}
+  .chk input{accent-color:var(--accent);width:15px;height:15px}
+  /* ---- stage ---- */
+  .stage{display:flex;flex-direction:column;overflow:hidden}
+  .toolbar{
+    display:flex;align-items:center;gap:6px;padding:10px 16px;
+    border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap;
+  }
+  .tabs{display:flex;gap:4px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:3px}
+  .tabs button{
+    border:none;background:none;padding:6px 15px;font-size:13px;font-weight:600;cursor:pointer;
+    color:var(--ink-soft);border-radius:6px;font-family:inherit;
+  }
+  .tabs button.on{background:var(--accent);color:#fff}
+  .spacer{flex:1}
+  .toolbar .pill{
+    font-family:var(--mono);font-size:11px;color:var(--ink-soft);
+    background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:5px 11px;
+  }
+  .btn{
+    border:1px solid var(--ink);background:var(--ink);color:#fff;font-weight:600;font-size:12px;
+    padding:7px 14px;border-radius:7px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:6px;
+  }
+  .btn.ghost{background:none;color:var(--ink);border-color:var(--line)}
+  .btn.ghost:hover{background:var(--paper)}
+  .view{flex:1;position:relative;overflow:hidden;background:
+    repeating-linear-gradient(0deg,transparent,transparent 23px,rgba(0,0,0,.03) 24px),
+    repeating-linear-gradient(90deg,transparent,transparent 23px,rgba(0,0,0,.03) 24px),
+    var(--paper);
+  }
+  .view > div{position:absolute;inset:0}
+  #view3d{display:none}
+  canvas{display:block}
+  #svg2d{width:100%;height:100%}
+  .legend{
+    position:absolute;left:14px;bottom:14px;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:10px 13px;font-size:11px;color:var(--ink-soft);display:flex;flex-direction:column;gap:6px;
+  }
+  .legend .li{display:flex;align-items:center;gap:7px}
+  .swatch{width:13px;height:13px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.15)}
+  .hint3d{
+    position:absolute;right:14px;bottom:14px;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:8px 12px;font-size:11px;color:var(--ink-soft);
+  }
+  /* ---- right report drawer (part list) ---- */
+  .report{
+    width:0;transition:width .18s;border-left:1px solid var(--line);background:var(--panel);
+    overflow:hidden;flex:none;
+  }
+  .report.open{width:320px}
+  .report-inner{width:320px;height:100%;overflow-y:auto;padding:0}
+  .stage-wrap{display:flex;flex:1;overflow:hidden}
+  .rhead{padding:16px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:2}
+  .rhead h2{margin:0;font-size:14px;font-weight:700}
+  .rhead p{margin:3px 0 0;font-size:11px;color:var(--ink-soft)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line-soft)}
+  th{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);font-weight:700}
+  td.num{font-family:var(--mono);text-align:right}
+  tr.grp td{background:var(--accent-soft);font-weight:700;color:var(--accent);font-size:11px;letter-spacing:.04em}
+  .strength{padding:16px 18px;border-top:1px solid var(--line)}
+  .strength h3{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 10px}
+  .gauge{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+  .gauge .big{font-family:var(--mono);font-size:26px;font-weight:700}
+  .gauge .tag{font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px}
+  .tag.ok{background:var(--accent-soft);color:var(--ok)}
+  .tag.warn{background:var(--warn-soft);color:var(--warn)}
+  .bar{height:8px;border-radius:5px;background:var(--line-soft);overflow:hidden;margin:8px 0}
+  .bar > i{display:block;height:100%;border-radius:5px}
+  .strength p{font-size:11px;color:var(--ink-soft);line-height:1.6;margin:8px 0 0}
+  .note{font-size:11px;color:var(--warn);margin-top:8px;display:flex;gap:6px;line-height:1.5}
+  @media print{
+    body *{visibility:hidden}
+    #printsheet,#printsheet *{visibility:visible}
+    #printsheet{display:block!important;position:absolute;inset:0;padding:0}
+  }
+  #printsheet{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ CONTROLS ============ -->
+  <aside class="panel">
+    <div class="brand">
+      <h1><span class="mark"></span>本棚設計</h1>
+      <p>Shelf Studio</p>
+    </div>
+
+    <div class="group">
+      <h2><span class="n">1</span>外形寸法</h2>
+      <div class="field">
+        <label>高さ H</label>
+        <div class="row-in"><input type="number" id="H" value="1800"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="H_s" min="300" max="2400" value="1800">
+      </div>
+      <div class="field">
+        <label>幅 W</label>
+        <div class="row-in"><input type="number" id="W" value="900"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="W_s" min="200" max="1800" value="900">
+      </div>
+      <div class="field">
+        <label>奥行 D</label>
+        <div class="row-in"><input type="number" id="D" value="300"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="D_s" min="120" max="600" value="300">
+      </div>
+    </div>
+
+    <div class="group">
+      <h2><span class="n">2</span>板の厚さ</h2>
+      <div class="field">
+        <label>板厚 T（共通）</label>
+        <div class="row-in"><input type="number" id="T" value="18"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="T_s" min="9" max="30" value="18">
+      </div>
+      <div class="field">
+        <label>背面板の厚さ</label>
+        <div class="row-in"><input type="number" id="BT" value="6"><span class="unit">mm</span></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2><span class="n">3</span>仕切り板</h2>
+      <div class="field">
+        <label>棚板（水平仕切り）の枚数</label>
+        <div class="stepper">
+          <button data-step="shelves" data-d="-1">−</button>
+          <span class="val" id="shelves_v">4</span>
+          <button data-step="shelves" data-d="1">＋</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>縦仕切りの本数</label>
+        <div class="stepper">
+          <button data-step="dividers" data-d="-1">−</button>
+          <span class="val" id="dividers_v">1</span>
+          <button data-step="dividers" data-d="1">＋</button>
+        </div>
+      </div>
+      <label class="chk"><input type="checkbox" id="evenShelf" checked>棚板を等間隔で配置</label>
+    </div>
+
+    <div class="group">
+      <h2><span class="n">4</span>接合方法</h2>
+      <div class="field">
+        <label>固定方式</label>
+        <div class="seg" id="joinSeg">
+          <button data-join="screw" class="on">ビス</button>
+          <button data-join="dowel">ダボ</button>
+          <button data-join="both">併用</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>1接合部あたりの本数</label>
+        <div class="stepper">
+          <button data-step="fpj" data-d="-1">−</button>
+          <span class="val" id="fpj_v">2</span>
+          <button data-step="fpj" data-d="1">＋</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2><span class="n">5</span>荷重条件</h2>
+      <div class="field">
+        <label>棚板1枚あたりの想定荷重</label>
+        <div class="row-in"><input type="number" id="load" value="15"><span class="unit">kg</span></div>
+        <input class="slider" type="range" id="load_s" min="2" max="60" value="15">
+      </div>
+      <div class="field">
+        <label>材質</label>
+        <div class="seg" id="matSeg">
+          <button data-mat="ply" class="on">合板</button>
+          <button data-mat="pine">パイン集成</button>
+          <button data-mat="mdf">MDF</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ STAGE ============ -->
+  <section class="stage">
+    <div class="toolbar">
+      <div class="tabs">
+        <button id="tab2d" class="on">2D 図面</button>
+        <button id="tab3d">3D プレビュー</button>
+      </div>
+      <span class="pill" id="sizePill">— × — × —</span>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="toggleReport">📋 部材リスト</button>
+      <button class="btn" id="printBtn">🖨 設計図を印刷</button>
+    </div>
+
+    <div class="stage-wrap">
+      <div class="view">
+        <div id="view2d"><svg id="svg2d" xmlns="http://www.w3.org/2000/svg"></svg></div>
+        <div id="view3d"></div>
+        <div class="legend" id="legend">
+          <div class="li"><span class="swatch" style="background:#c69a6d"></span>構造板（天地・側面）</div>
+          <div class="li"><span class="swatch" style="background:#d9b98c"></span>棚板 / 縦仕切り</div>
+          <div class="li"><span class="swatch" style="background:#7d94b8"></span>背面板</div>
+          <div class="li"><span class="swatch" style="background:#2f6d5b"></span>ビス位置</div>
+          <div class="li"><span class="swatch" style="background:#c0492e"></span>ダボ位置</div>
+        </div>
+        <div class="hint3d" id="hint3d" style="display:none">ドラッグで回転 / ホイールでズーム</div>
+      </div>
+
+      <!-- part list drawer -->
+      <div class="report" id="report">
+        <div class="report-inner">
+          <div class="rhead"><h2>部材リスト</h2><p id="rsub">— parts</p></div>
+          <table id="partTable"><tbody></tbody></table>
+          <div class="strength" id="strengthBox"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- print sheet -->
+<div id="printsheet"></div>
+
+<script>
+/* ================= state ================= */
+const S={H:1800,W:900,D:300,T:18,BT:6,shelves:4,dividers:1,even:true,
+         join:'screw',fpj:2,load:15,mat:'ply'};
+const MAT={ply:{name:'構造用合板',E:7000,label:'合板'},
+           pine:{name:'パイン集成材',E:9000,label:'パイン集成'},
+           mdf:{name:'MDF',E:3600,label:'MDF'}}; // E in N/mm^2 (approx)
+
+/* ================= bindings ================= */
+function bindNum(id){
+  const inp=document.getElementById(id), sl=document.getElementById(id+'_s');
+  inp.addEventListener('input',()=>{S[id]=clamp(id,+inp.value);if(sl)sl.value=S[id];sync();render();});
+  if(sl)sl.addEventListener('input',()=>{S[id]=+sl.value;inp.value=S[id];sync();render();});
+}
+function clamp(id,v){const el=document.getElementById(id+'_s');if(!el)return v;
+  return Math.max(+el.min,Math.min(+el.max,v||0));}
+['H','W','D','T','load'].forEach(bindNum);
+document.getElementById('BT').addEventListener('input',e=>{S.BT=+e.target.value||0;sync();render();});
+
+document.querySelectorAll('[data-step]').forEach(b=>b.addEventListener('click',()=>{
+  const k=b.dataset.step,d=+b.dataset.d;
+  const lim={shelves:[0,20],dividers:[0,6],fpj:[1,4]}[k];
+  S[k]=Math.max(lim[0],Math.min(lim[1],S[k]+d));
+  document.getElementById(k+'_v').textContent=S[k];render();
+}));
+document.getElementById('evenShelf').addEventListener('change',e=>{S.even=e.target.checked;render();});
+document.getElementById('joinSeg').addEventListener('click',e=>{
+  if(!e.target.dataset.join)return;S.join=e.target.dataset.join;
+  segOn('joinSeg',e.target);render();});
+document.getElementById('matSeg').addEventListener('click',e=>{
+  if(!e.target.dataset.mat)return;S.mat=e.target.dataset.mat;
+  segOn('matSeg',e.target);render();});
+function segOn(id,el){document.querySelectorAll('#'+id+' button').forEach(b=>b.classList.remove('on'));el.classList.add('on');}
+
+/* tabs */
+const t2=document.getElementById('tab2d'),t3=document.getElementById('tab3d');
+t2.addEventListener('click',()=>switchView('2d'));
+t3.addEventListener('click',()=>switchView('3d'));
+function switchView(v){
+  const is2=v==='2d';
+  t2.classList.toggle('on',is2);t3.classList.toggle('on',!is2);
+  document.getElementById('view2d').style.display=is2?'block':'none';
+  document.getElementById('view3d').style.display=is2?'none':'block';
+  document.getElementById('hint3d').style.display=is2?'none':'block';
+  document.getElementById('legend').style.display=is2?'flex':'none';
+  if(!is2){ensure3d();render3d();}
+}
+document.getElementById('toggleReport').addEventListener('click',()=>{
+  document.getElementById('report').classList.toggle('open');
+});
+document.getElementById('printBtn').addEventListener('click',buildPrint);
+
+function sync(){
+  document.getElementById('sizePill').textContent=`${S.H} × ${S.W} × ${S.D} mm`;
+}
+
+/* ================= geometry model ================= */
+// Returns list of parts with dims + a 2D front-elevation layout in mm.
+function computeParts(){
+  const {H,W,D,T,BT}=S;
+  const inW=W-2*T;                 // interior width between side panels
+  const inH=H-2*T;                 // interior height between top & bottom
+  const parts=[];
+  // structural
+  parts.push({grp:'構造板',name:'天板',w:W,h:D,t:T,qty:1,note:'側面板の上に載る'});
+  parts.push({grp:'構造板',name:'地板',w:W,h:D,t:T,qty:1,note:'側面板の下に載る'});
+  parts.push({grp:'構造板',name:'側面板',w:D,h:H,t:T,qty:2,note:'左右'});
+  // vertical dividers split interior width into columns
+  const cols=S.dividers+1;
+  const colW=(inW-S.dividers*T)/cols;
+  if(S.dividers>0)
+    parts.push({grp:'仕切り板',name:'縦仕切り',w:D,h:inH,t:T,qty:S.dividers,note:`${cols}分割`});
+  // horizontal shelves span each column
+  if(S.shelves>0)
+    parts.push({grp:'仕切り板',name:'棚板(水平)',w:colW,h:D,t:T,qty:S.shelves*cols,
+      note:`各列 ${S.shelves} 段`});
+  // back panel
+  parts.push({grp:'背面板',name:'背面板',w:W,h:H,t:BT,qty:1,note:'全体を覆う / 溝または当て'});
+  return {parts,inW,inH,colW,cols};
+}
+
+/* shelf Y positions (from bottom, interior) */
+function shelfYs(inH){
+  const n=S.shelves;const ys=[];
+  for(let i=1;i<=n;i++) ys.push(S.T + inH*i/(n+1));
+  return ys;
+}
+
+/* ================= strength ================= */
+// simple beam deflection of a shelf as simply supported plate strip
+function strength(){
+  const {D,T}=S;
+  const {colW}=computeParts();
+  const L=colW;                        // span mm
+  const b=D;                           // width mm
+  const h=T;                           // thickness mm
+  const E=MAT[S.mat].E;                // N/mm^2
+  const I=b*Math.pow(h,3)/12;          // mm^4
+  const Wn=S.load*9.81;                // N total, uniformly distributed
+  // max deflection UDL simply supported: 5wL^4/384EI, w=Wn/L
+  const w=Wn/L;
+  const defl=5*w*Math.pow(L,4)/(384*E*I); // mm
+  const ratio=L/Math.max(defl,1e-6);      // span/deflection
+  // criteria: L/250 acceptable, L/360 good
+  let level,tag;
+  if(ratio>=360){level='余裕あり';tag='ok';}
+  else if(ratio>=250){level='実用範囲';tag='ok';}
+  else if(ratio>=180){level='注意';tag='warn';}
+  else {level='補強推奨';tag='warn';}
+  return {defl,L,ratio,level,tag};
+}
+
+/* ================= 2D SVG render ================= */
+const svg=document.getElementById('svg2d');
+function render2d(){
+  const {inW,inH,colW,cols}=computeParts();
+  const {H,W,T}=S;
+  // viewport fit
+  const vw=svg.clientWidth||900, vh=svg.clientHeight||600;
+  const pad=90;
+  const sc=Math.min((vw-2*pad)/W,(vh-2*pad)/H);
+  const ox=(vw-W*sc)/2, oy=(vh-H*sc)/2;
+  const X=x=>ox+x*sc, Y=y=>oy+(H-y)*sc; // flip Y so bottom is bottom
+  let g='';
+  const rect=(x,y,w,h,fill,stroke='#8a6a44',sw=1)=>
+    `<rect x="${X(x).toFixed(1)}" y="${Y(y+h).toFixed(1)}" width="${(w*sc).toFixed(1)}" height="${(h*sc).toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+  // sides
+  g+=rect(0,0,T,H,'#c69a6d');
+  g+=rect(W-T,0,T,H,'#c69a6d');
+  // top & bottom
+  g+=rect(0,H-T,W,T,'#c69a6d');
+  g+=rect(0,0,W,T,'#c69a6d');
+  // vertical dividers
+  const divXs=[];
+  for(let i=1;i<=S.dividers;i++){
+    const x=T + (colW+T)*i - T; // left edge of divider i
+    divXs.push(x);
+    g+=rect(x,T,T,inH,'#d9b98c');
+  }
+  // column left edges
+  const colLefts=[];
+  for(let c=0;c<cols;c++) colLefts.push(T + c*(colW+T));
+  // shelves per column
+  const ys=shelfYs(inH);
+  const fixPts=[]; // {x,y}
+  ys.forEach(yc=>{
+    colLefts.forEach(cl=>{
+      g+=rect(cl,yc-T/2,colW,T,'#d9b98c');
+    });
+  });
+  // joinery points: where shelves meet sides/dividers, and top/bottom meet sides
+  function edgeMarks(){
+    const marks=[];
+    // top/bottom to sides (4 corners)
+    [[T/2,H-T/2],[W-T/2,H-T/2],[T/2,T/2],[W-T/2,T/2]].forEach(p=>marks.push(p));
+    // shelves to each support (both ends of each column shelf)
+    ys.forEach(yc=>{
+      colLefts.forEach((cl,ci)=>{
+        marks.push([cl-T/2>0?cl- ( ci===0? T/2 : T/2):cl, yc]); // left support center approx
+        marks.push([cl+colW+ ( ci===cols-1? T/2 : T/2), yc]);
+      });
+    });
+    return marks;
+  }
+  // simpler, robust support-line marks:
+  const marks=[];
+  const supportXs=[T/2, W-T/2, ...divXs.map(x=>x+T/2)];
+  ys.forEach(yc=>supportXs.forEach(sx=>marks.push([sx,yc])));
+  // corners
+  [[T/2,T/2],[W-T/2,T/2],[T/2,H-T/2],[W-T/2,H-T/2]].forEach(p=>marks.push(p));
+
+  // draw fasteners
+  const fcolor = S.join==='dowel' ? '#c0492e' : '#2f6d5b';
+  const drawFastener=(x,y,kind)=>{
+    const cx=X(x),cy=Y(y),r=Math.max(2.4,3.2);
+    if(kind==='dowel'){
+      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#c0492e" stroke-width="1.6"/>`;
+    }
+    // screw: filled dot with cross
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#2f6d5b"/>`+
+           `<line x1="${cx-r-1.5}" y1="${cy}" x2="${cx+r+1.5}" y2="${cy}" stroke="#2f6d5b" stroke-width="1"/>`+
+           `<line x1="${cx}" y1="${cy-r-1.5}" x2="${cx}" y2="${cy+r+1.5}" stroke="#2f6d5b" stroke-width="1"/>`;
+  };
+  let fast='';let totalF=0;
+  marks.forEach(([x,y])=>{
+    const n=S.fpj;
+    for(let k=0;k<n;k++){
+      const off=(k-(n-1)/2)*(Math.min(S.D,120)*0.28);
+      // spread along depth not visible in front; nudge vertically instead for clarity
+      const yy=y+off*0.0+ (k-(n-1)/2)*10;
+      if(S.join==='both'){
+        fast+=drawFastener(x,y+(k-(n-1)/2)*12, k%2? 'dowel':'screw');
+      }else{
+        fast+=drawFastener(x,y+(k-(n-1)/2)*12,S.join);
+      }
+      totalF++;
+    }
+  });
+
+  // dimension lines
+  function dim(x1,y1,x2,y2,label,side){
+    const a=`${X(x1)},${Y(y1)}`,b=`${X(x2)},${Y(y2)}`;
+    const mx=(X(x1)+X(x2))/2,my=(Y(y1)+Y(y2))/2;
+    return `<line x1="${X(x1)}" y1="${Y(y1)}" x2="${X(x2)}" y2="${Y(y2)}" stroke="#4a544f" stroke-width="1" marker-start="url(#a)" marker-end="url(#a)"/>`+
+      `<text x="${mx}" y="${my}" fill="#1c2321" font-size="12" font-family="monospace" text-anchor="middle" dominant-baseline="central" ${side==='v'?`transform="rotate(-90 ${mx} ${my})"`:''} style="paint-order:stroke;stroke:${'#f6f3ea'};stroke-width:4px">${label}</text>`;
+  }
+  // outer W dim (below), H dim (left)
+  const dimW=dim(0,-40/sc, W,-40/sc, S.W+'','h');
+  const dimH=dim(-40/sc,0, -40/sc,H, S.H+'','v');
+
+  svg.innerHTML=`
+    <defs>
+      <marker id="a" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+        <path d="M2,2 L8,5 L2,8" fill="none" stroke="#4a544f" stroke-width="1"/>
+      </marker>
+      <pattern id="grain" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(90)">
+        <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(150,110,70,.25)" stroke-width="1"/>
+      </pattern>
+    </defs>
+    ${g}
+    ${dimW}${dimH}
+    ${fast}
+  `;
+  return {totalF};
+}
+
+/* ================= 3D render ================= */
+let R3;
+function ensure3d(){
+  if(R3)return;
+  const host=document.getElementById('view3d');
+  const scene=new THREE.Scene();scene.background=new THREE.Color(0xf6f3ea);
+  const cam=new THREE.PerspectiveCamera(40,host.clientWidth/host.clientHeight,10,20000);
+  const rend=new THREE.WebGLRenderer({antialias:true});
+  rend.setPixelRatio(Math.min(devicePixelRatio,2));
+  rend.setSize(host.clientWidth,host.clientHeight);host.appendChild(rend.domElement);
+  const amb=new THREE.AmbientLight(0xffffff,.72);scene.add(amb);
+  const dir=new THREE.DirectionalLight(0xffffff,.85);dir.position.set(1,2,1.4);scene.add(dir);
+  const dir2=new THREE.DirectionalLight(0xffffff,.3);dir2.position.set(-1,.5,-1);scene.add(dir2);
+  const grp=new THREE.Group();scene.add(grp);
+  // simple orbit
+  let rx=-.25,ry=.5,dist=2600,down=false,px,py;
+  const dom=rend.domElement;
+  dom.addEventListener('pointerdown',e=>{down=true;px=e.clientX;py=e.clientY;});
+  addEventListener('pointerup',()=>down=false);
+  addEventListener('pointermove',e=>{if(!down)return;ry+=(e.clientX-px)*.008;rx+=(e.clientY-py)*.008;
+    rx=Math.max(-1.2,Math.min(1.2,rx));px=e.clientX;py=e.clientY;place();});
+  dom.addEventListener('wheel',e=>{e.preventDefault();dist*=(1+Math.sign(e.deltaY)*.08);
+    dist=Math.max(700,Math.min(9000,dist));place();},{passive:false});
+  function place(){
+    cam.position.set(Math.sin(ry)*Math.cos(rx)*dist,Math.sin(rx)*dist+ S.H*0.1,Math.cos(ry)*Math.cos(rx)*dist);
+    cam.lookAt(0,0,0);rend.render(scene,cam);
+  }
+  R3={scene,cam,rend,grp,place,host};
+  new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;if(!w)return;
+    cam.aspect=w/h;cam.updateProjectionMatrix();rend.setSize(w,h);place();}).observe(host);
+}
+function board(w,h,d,color){
+  const g=new THREE.BoxGeometry(w,h,d);
+  const m=new THREE.MeshLambertMaterial({color});
+  const mesh=new THREE.Mesh(g,m);
+  const edges=new THREE.LineSegments(new THREE.EdgesGeometry(g),
+    new THREE.LineBasicMaterial({color:0x8a6a44}));
+  const grp=new THREE.Group();grp.add(mesh);grp.add(edges);return grp;
+}
+function render3d(){
+  if(!R3)return;
+  const {H,W,D,T,BT}=S;const {inW,inH,colW,cols}=computeParts();
+  const grp=R3.grp;while(grp.children.length)grp.remove(grp.children[0]);
+  const cx=-W/2,cy=-H/2,cz=-D/2; // center object
+  const add=(x,y,z,w,h,d,c)=>{const b=board(w,h,d,c);b.position.set(x+w/2+cx,y+h/2+cy,z+d/2+cz);grp.add(b);};
+  const WOOD=0xc69a6d, WOOD2=0xd9b98c, BACK=0x7d94b8;
+  // sides
+  add(0,0,0,T,H,D,WOOD);
+  add(W-T,0,0,T,H,D,WOOD);
+  // top/bottom
+  add(0,H-T,0,W,T,D,WOOD);
+  add(0,0,0,W,T,D,WOOD);
+  // back
+  add(0,0,0,W,H,BT,BACK);
+  // dividers
+  for(let i=1;i<=S.dividers;i++){
+    const x=T+(colW+T)*i-T;add(x,T,0,T,inH,D,WOOD2);
+  }
+  // shelves
+  const colLefts=[];for(let c=0;c<cols;c++)colLefts.push(T+c*(colW+T));
+  shelfYs(inH).forEach(yc=>{colLefts.forEach(cl=>add(cl,yc-T/2,0,colW,T,D,WOOD2));});
+  R3.place();
+}
+
+/* ================= report ================= */
+function renderReport(){
+  const {parts}=computeParts();
+  let rows='',last='',total=0;
+  parts.forEach(p=>{
+    if(p.grp!==last){rows+=`<tr class="grp"><td colspan="4">${p.grp}</td></tr>`;last=p.grp;}
+    const dim=`${Math.round(p.w)}×${Math.round(p.h)}×${p.t}`;
+    rows+=`<tr><td>${p.name}</td><td class="num">${dim}</td><td class="num">${p.qty}</td><td>${p.note}</td></tr>`;
+    total+=p.qty;
+  });
+  document.querySelector('#partTable tbody').innerHTML=
+    `<tr><th>部材</th><th style="text-align:right">寸法 W×H×T</th><th style="text-align:right">数</th><th>備考</th></tr>`+rows;
+  document.getElementById('rsub').textContent=`${total} 枚 / ${MAT[S.mat].name}`;
+  // strength
+  const st=strength();
+  const pct=Math.min(100,st.ratio/500*100);
+  const barc=st.tag==='ok'?'#2f6d5b':'#c0492e';
+  let msg='';
+  if(st.tag==='warn')
+    msg=`<div class="note">⚠ たわみが大きめです。板厚を上げる・縦仕切りを増やす・棚スパンを狭めると改善します。</div>`;
+  document.getElementById('strengthBox').innerHTML=`
+    <h3>棚板の強度チェック</h3>
+    <div class="gauge">
+      <span class="big">${st.defl.toFixed(1)}<span style="font-size:13px"> mm</span></span>
+      <span class="tag ${st.tag}">${st.level}</span>
+    </div>
+    <div style="font-size:11px;color:var(--ink-soft)">スパン ${Math.round(st.L)}mm / たわみ比 L÷${Math.round(st.ratio)}</div>
+    <div class="bar"><i style="width:${pct}%;background:${barc}"></i></div>
+    <p>荷重 ${S.load}kg を等分布とした単純梁近似。目安：L/250 以上で実用、L/360 以上で余裕。</p>
+    ${msg}
+  `;
+}
+
+/* ================= print ================= */
+function buildPrint(){
+  const {parts,colW,cols}=computeParts();
+  const st=strength();
+  // capture svg
+  render2d();
+  const svgHtml=svg.outerHTML.replace('id="svg2d"','width="520" height="640" viewBox="0 0 '+ (svg.clientWidth||900)+' '+(svg.clientHeight||600)+'"');
+  let rows='',last='';
+  parts.forEach(p=>{
+    if(p.grp!==last){rows+=`<tr style="background:#e3efe9"><td colspan="5" style="font-weight:700;color:#2f6d5b;padding:4px 8px">${p.grp}</td></tr>`;last=p.grp;}
+    rows+=`<tr><td style="padding:4px 8px;border-bottom:1px solid #eee">${p.name}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${Math.round(p.w)}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${Math.round(p.h)}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${p.t}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${p.qty}</td></tr>`;
+  });
+  const jn={screw:'ビス',dowel:'ダボ',both:'ビス＋ダボ併用'}[S.join];
+  document.getElementById('printsheet').innerHTML=`
+    <div style="font-family:sans-serif;color:#1c2321;padding:20px 26px;max-width:900px;margin:auto">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1c2321;padding-bottom:10px">
+        <div><h1 style="margin:0;font-size:22px">本棚 設計図</h1>
+        <div style="font-size:12px;color:#4a544f;letter-spacing:.1em">SHELF STUDIO — WORKING DRAWING</div></div>
+        <div style="text-align:right;font-size:12px;font-family:monospace">
+          外形 ${S.H}×${S.W}×${S.D} mm<br>板厚 ${S.T}mm / 背面 ${S.BT}mm<br>${MAT[S.mat].name}
+        </div>
+      </div>
+      <div style="display:flex;gap:24px;margin-top:16px">
+        <div style="flex:none">${svgHtml}</div>
+        <div style="flex:1">
+          <h3 style="font-size:12px;letter-spacing:.1em;color:#4a544f;margin:0 0 8px">部材表（mm）</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <tr style="font-size:10px;text-transform:uppercase;color:#4a544f">
+              <th style="text-align:left;padding:4px 8px">部材</th><th style="text-align:right;padding:4px 8px">W</th>
+              <th style="text-align:right;padding:4px 8px">H</th><th style="text-align:right;padding:4px 8px">T</th>
+              <th style="text-align:right;padding:4px 8px">数</th></tr>
+            ${rows}
+          </table>
+          <h3 style="font-size:12px;letter-spacing:.1em;color:#4a544f;margin:16px 0 6px">接合仕様</h3>
+          <div style="font-size:12px;line-height:1.7">
+            固定方式：<b>${jn}</b> ／ 1接合部あたり ${S.fpj} 本<br>
+            棚割：${cols} 列 × 各 ${S.shelves} 段（棚スパン ${Math.round(colW)}mm）<br>
+            縦仕切り ${S.dividers} 本
+          </div>
+          <h3 style="font-size:12px;letter-spacing:.1em;color:#4a544f;margin:16px 0 6px">強度チェック</h3>
+          <div style="font-size:12px;line-height:1.7">
+            棚板たわみ <b>${st.defl.toFixed(1)}mm</b>（L/${Math.round(st.ratio)}）— 判定 <b>${st.level}</b><br>
+            荷重条件：棚板1枚あたり ${S.load}kg 等分布
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:14px;font-size:10px;color:#8a8a8a;border-top:1px solid #ddd;padding-top:6px">
+        ※ 寸法は板の切り出し寸法（仕上げ前）。たわみは単純梁近似の目安値です。実制作前に現物で確認してください。
+      </div>
+    </div>`;
+  window.print();
+}
+
+/* ================= master render ================= */
+function render(){
+  document.getElementById('shelves_v').textContent=S.shelves;
+  document.getElementById('dividers_v').textContent=S.dividers;
+  document.getElementById('fpj_v').textContent=S.fpj;
+  sync();
+  if(document.getElementById('view2d').style.display!=='none') render2d();
+  else render3d();
+  renderReport();
+}
+sync();render();
+window.addEventListener('resize',()=>{if(document.getElementById('view2d').style.display!=='none')render2d();});
+</script>
+</body>
+</html>
