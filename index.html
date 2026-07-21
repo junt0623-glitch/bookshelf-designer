@@ -211,9 +211,9 @@
         <input class="slider" type="range" id="H_s" min="300" max="2400" value="1800" step="0.5">
       </div>
       <div class="field">
-        <label>幅 W</label>
-        <div class="row-in"><input type="number" id="W" value="900" step="0.5" inputmode="decimal"><span class="unit">mm</span></div>
-        <input class="slider" type="range" id="W_s" min="200" max="1800" value="900" step="0.5">
+        <label>幅 W <span style="font-weight:400;color:var(--ink-soft)">（規格合板の最大幅 1820mm まで）</span></label>
+        <div class="row-in"><input type="number" id="W" value="900" step="0.5" inputmode="decimal" max="1820"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="W_s" min="200" max="1820" value="900" step="0.5">
       </div>
       <div class="field">
         <label>奥行 D</label>
@@ -348,6 +348,7 @@
           <div class="li"><span class="swatch" style="background:#c0492e"></span>ダボ位置</div>
           <div class="li"><span class="swatch" style="background:transparent;border:1px dashed #8a6a44"></span>破線＋半透明＝隠れて見えない部材</div>
           <div class="li" style="border-top:1px solid var(--line-soft);padding-top:6px;margin-top:2px">🖐 ドラッグで移動（10mm）／クリック選択→矢印で微調整（5mm）・段の増減</div>
+          <div class="li">背面板は左右側面図で前後にドラッグ可（外形を超えない範囲）</div>
         </div>
         <div class="hint3d" id="hint3d" style="display:none">ドラッグで回転 / ホイールでズーム</div>
         <!-- 5mm fine-adjust pad for the selected part -->
@@ -392,7 +393,8 @@ const S={H:1800,W:900,D:300,T:18,BT:6,shelves:4,dividers:1,
          topMode:'on', botMode:'on', botGap:0, // 乗る='on' / 挟まれる='in'
          ov:{},          // structural part overrides: {top,bottom,sideL,sideR,back}:{t?,d?}
          divs:null,      // [{x,t?,d?}] (x=centre from left) or null=even from S.dividers
-         colShelves:null}; // [[{y,t?,d?},…] per column] or null=even from S.shelves
+         colShelves:null, // [[{y,t?,d?},…] per column] or null=even from S.shelves
+         backZ:null};    // back panel front-face depth position (mm from front); null=flush at rear
 const MAT={ply:{name:'構造用合板',E:7000,label:'合板'},
            pine:{name:'パイン集成材',E:9000,label:'パイン集成'},
            mdf:{name:'MDF',E:3600,label:'MDF'}}; // E in N/mm^2 (approx)
@@ -495,6 +497,10 @@ function geom(){
   // top / bottom board horizontal extent depends on join mode
   const topX=(S.topMode==='in')?sideLT:0, topW=(S.topMode==='in')?inW:W;
   const botX=(S.botMode==='in')?sideLT:0, botW=(S.botMode==='in')?inW:W;
+  // back panel depth (Z) position: front face of the panel, mm from the case front (z=0).
+  // Clamped so the panel [bkZ, bkZ+bkT] always stays within the case depth [0,D].
+  const bkZmax=Math.max(0,D-bkT);
+  const bkZ=Math.max(0,Math.min(bkZmax, (S.backZ!=null)?S.backZ:bkZmax));
 
   // dividers -> [{x,t,d,ref}] (ref = stored object for editing, or null when even)
   const nd=S.dividers; let divs;
@@ -516,7 +522,7 @@ function geom(){
 
   return {H,W,D,T,BT, topT,botT,sideLT,sideRT,bkT, topD,botD,sideLD,sideRD,
           topBotFace,botTopFace,sideTop,sideBottom,botGap,
-          topX,topW,botX,botW, inW,inH, divs,cols,colShelves,
+          topX,topW,botX,botW, inW,inH, divs,cols,colShelves, bkZ,bkZmax,
           topMode:S.topMode,botMode:S.botMode};
 }
 function columns(){return geom().cols;}
@@ -558,7 +564,8 @@ function computeParts(){
     parts.push({id:`c${c}s${k}`,grp:'棚板（水平仕切り）',name:`列${c+1} 段${k+1}`,w:G.cols[c].width,h:s.d,t:s.t,qty:1,
       note:`下から ${fmt(s.y)}mm`, edit:{h:'d',t:'t'}});
   }));
-  parts.push({id:'back',grp:'背面板',name:'背面板',w:G.W,h:G.H,t:G.bkT,qty:1,note:'全体を覆う / 溝または当て', edit:{t:'t'}});
+  parts.push({id:'back',grp:'背面板',name:'背面板',w:G.W,h:G.H,t:G.bkT,qty:1,
+    note:`前から ${fmt(G.bkZ)}mm（奥行方向にドラッグで移動可）`, edit:{t:'t'}});
   return {parts,cols:G.cols,G};
 }
 
@@ -607,7 +614,7 @@ const HID='stroke-dasharray="5 3"';
 function render2d(){
   const G=geom();
   const {H,W,D,inW,inH,cols,divs,colShelves}=G;
-  const {topT,botT,sideLT,sideRT,bkT,topBotFace,botTopFace,sideTop,sideBottom,botGap,topX:tX,topW,botX:bX,botW,topD,botD}=G;
+  const {topT,botT,sideLT,sideRT,bkT,topBotFace,botTopFace,sideTop,sideBottom,botGap,topX:tX,topW,botX:bX,botW,topD,botD,bkZ}=G;
   const botY0=(S.botMode==='in')?botGap:0;         // from-bottom base of bottom board
   const vw=svg.clientWidth||900, vh=svg.clientHeight||600;
   const pad=48;
@@ -671,9 +678,10 @@ function render2d(){
     g+=R(topPX,topPY,sideLT,D, vis?C_WOOD:WOODh, C_EDGE,1, vis?'':HID);
     g+=R(topPX+W-sideRT,topPY,sideRT,D, vis?C_WOOD:WOODh, C_EDGE,1, vis?'':HID);
   }
-  // dividers & back panel — always beneath the top board, hidden
+  // dividers & back panel — always beneath the top board, hidden.
+  // back panel z-band [bkZ,bkZ+bkT] -> local y = topPY+(D-(bkZ+bkT)) .. topPY+(D-bkZ) (rear=topPY)
   divs.forEach(dv=>g+=R(topPX+dv.x-dv.t/2,topPY,dv.t,D,WOOD2h,C_EDGE,1,HID));
-  g+=R(topPX,topPY,W,bkT,BACKh,C_BACK,1,HID);
+  g+=R(topPX,topPY+(D-(bkZ+bkT)),W,bkT,BACKh,C_BACK,1,HID);
 
   /* ---------- BOTTOM plan (底面) : front edge at top — hidden lines dashed+translucent ---------- */
   g+=R(botPX,botPY,W,D,C_LIGHT);
@@ -686,7 +694,8 @@ function render2d(){
     g+=R(botPX+W-sideRT,botPY,sideRT,D, vis?C_WOOD:WOODh, C_EDGE,1, vis?'':HID);
   }
   divs.forEach(dv=>g+=R(botPX+dv.x-dv.t/2,botPY,dv.t,D,WOOD2h,C_EDGE,1,HID));
-  g+=R(botPX,botPY+D-bkT,W,bkT,BACKh,C_BACK,1,HID);
+  // back panel z-band [bkZ,bkZ+bkT] -> local y = botPY+bkZ .. botPY+bkZ+bkT (front=botPY)
+  g+=R(botPX,botPY+bkZ,W,bkT,BACKh,C_BACK,1,HID);
 
   /* ---------- LEFT / RIGHT side views (hidden lines dashed+translucent) ---------- */
   const sideView=(bx,by,frontRight)=>{
@@ -698,11 +707,15 @@ function render2d(){
     // bottom board band
     if(S.botMode==='on') g+=R(bx, by+TD(botY0+botT), D, botT, C_WOOD, C_EDGE,1);
     else                 g+=R(bx, by+TD(botY0+botT), D, botT, WOODh, C_EDGE,1, HID);
-    // back panel — hidden behind the side panel
-    g+=R(frontRight? bx : bx+D-bkT, by, bkT, H, BACKh, C_BACK,1, HID);
-    // shelves (every cell) — hidden behind the side panel
+    // back panel — hidden behind the side panel; draggable along depth (front↔rear), clamped to the case
+    {
+      const on=SEL&&SEL.type==='back';
+      const bkx=frontRight? bx+(D-(bkZ+bkT)) : bx+bkZ;
+      g+=R(bkx, by, bkT, H, BACKh, on?C_SEL:C_BACK, on?2.2:1, HID+` data-drag="back" data-view="${frontRight?'L':'R'}" style="cursor:ew-resize"`);
+    }
+    // shelves (every cell) — hidden behind the side panel; depth capped by the back panel's front face
     colShelves.forEach(arr=>arr.forEach(s=>{
-      const shD=Math.min(s.d, D-bkT), sx=frontRight? bx+bkT : bx+D-bkT-shD;
+      const shD=Math.min(s.d, bkZ), sx=frontRight? bx+(D-bkZ) : bx+bkZ-shD;
       g+=R(sx, by+TD(s.y+s.t/2), shD, s.t, WOOD2h, C_EDGE,1, HID);
     }));
   };
@@ -765,7 +778,7 @@ function render2d(){
     dimV_(topPY,topPY+D,topPX+W+gap*0.35,fmt(D))+
     colDims;
 
-  FRONT={ox,oy,sc,fx,fy,H,W,zoom:Z2,panX:PX,panY:PY};
+  FRONT={ox,oy,sc,fx,fy,H,W,D,leftX,rightX,zoom:Z2,panX:PX,panY:PY};
 
   svg.innerHTML=`
     <defs>
@@ -795,6 +808,7 @@ svg.addEventListener('pointerdown',e=>{
   if(t){                                          // grab a part: select + drag
     if(t.dataset.drag==='shelf'){ dragState={type:'shelf',col:+t.dataset.col,idx:+t.dataset.idx};
       SEL={type:'shelf',col:dragState.col,idx:dragState.idx}; }
+    else if(t.dataset.drag==='back'){ dragState={type:'back',view:t.dataset.view}; SEL={type:'back'}; }
     else { dragState={type:'div',i:+t.dataset.i}; SEL={type:'div',i:dragState.i}; }
     updateNudge(); render();
   }else{                                          // empty space: pan
@@ -822,7 +836,17 @@ svg.addEventListener('pointermove',e=>{
     render2d(); return;
   }
   if(!dragState)return;
-  const G=geom(); const m=localMM(px,py);
+  const G=geom();
+  if(dragState.type==='back'){
+    // side-view local x -> depth z (front=0, rear=D), direction depends on which view was grabbed
+    const {ox,oy,sc,zoom,panX,panY,D,leftX,rightX}=FRONT;
+    const gx=(px-panX)/zoom;
+    const localX=(gx-ox)/sc - (dragState.view==='L'? leftX : rightX);
+    const z = dragState.view==='L' ? (D-localX) : localX;
+    S.backZ = Math.max(0, Math.min(G.bkZmax, snap(z)));
+    render(); return;
+  }
+  const m=localMM(px,py);
   if(dragState.type==='shelf'){
     const arr=ensureShelves()[dragState.col]; if(!arr||!arr[dragState.idx])return;
     const st=G.colShelves[dragState.col][dragState.idx].t;
@@ -871,6 +895,9 @@ function nudge(dx,dy){
     const [lo,hi]=divBounds(G,SEL.i);
     let xc=S.divs[SEL.i].x+dx*NUDGE;
     S.divs[SEL.i].x=Math.max(lo, Math.min(hi, xc));
+  }else if(SEL.type==='back' && dx){
+    let z=G.bkZ+dx*NUDGE;
+    S.backZ=Math.max(0, Math.min(G.bkZmax, z));
   }else return;
   render(); updateNudge();
 }
@@ -911,6 +938,8 @@ function updateNudge(){
   if(SEL.type==='shelf'){
     const s=(G.colShelves[SEL.col]||[])[SEL.idx];
     name=`列${SEL.col+1} 段${SEL.idx+1}`; pos=s?`下から ${fmt(s.y)}mm`:'';
+  }else if(SEL.type==='back'){
+    name='背面板'; pos=`前から ${fmt(G.bkZ)}mm`;
   }else{
     const dv=G.divs[SEL.i];
     name=`縦仕切り #${SEL.i+1}`; pos=dv?`左から ${fmt(dv.x)}mm`:'';
@@ -984,7 +1013,7 @@ function render3d(){
   if(!R3)return;
   const G=geom();
   const {H,W,D,inH,cols,divs,colShelves,topT,botT,sideLT,sideRT,bkT,
-         topD,botD,sideLD,sideRD,topX,topW,botX,botW,sideTop,sideBottom,botTopFace,topBotFace,botGap}=G;
+         topD,botD,sideLD,sideRD,topX,topW,botX,botW,sideTop,sideBottom,botTopFace,topBotFace,botGap,bkZ}=G;
   const grp=R3.grp;while(grp.children.length)grp.remove(grp.children[0]);
   const cx=-W/2,cy=-H/2,cz=-D/2; // center object
   const add=(x,y,z,w,h,dp,c)=>{const b=board(w,h,dp,c);b.position.set(x+w/2+cx,y+h/2+cy,z+dp/2+cz);grp.add(b);};
@@ -995,14 +1024,14 @@ function render3d(){
   // top & bottom (width/x depend on 乗る/挟まれる)
   add(topX,H-topT,0,topW,topT,topD,WOOD);
   add(botX,(S.botMode==='in')?botGap:0,0,botW,botT,botD,WOOD);
-  // back panel at the rear
-  add(0,0,D-bkT,W,H,bkT,BACK);
+  // back panel — depth position adjustable (front face at bkZ), clamped within the case
+  add(0,0,bkZ,W,H,bkT,BACK);
   // dividers
   divs.forEach(dv=>add(dv.x-dv.t/2,botTopFace,0,dv.t,inH,dv.d,WOOD2));
-  // shelves — per cell, butt to back panel
+  // shelves — per cell, butt to the back panel's front face
   colShelves.forEach((arr,c)=>{const col=cols[c]; arr.forEach(s=>{
-    const shD=Math.min(s.d, D-bkT);
-    add(col.left, s.y-s.t/2, D-bkT-shD, col.width, s.t, shD, WOOD2);
+    const shD=Math.min(s.d, bkZ);
+    add(col.left, s.y-s.t/2, bkZ-shD, col.width, s.t, shD, WOOD2);
   });});
   R3.place();
 }
@@ -1029,7 +1058,7 @@ function partCell(p,col){
   if(!field) return `<td class="ro">${fmt(p[col])}</td>`;
   const o=ovObjPeek(p.id); const isOv=!!(o&&o[field]!=null&&o[field]>0);
   const label=field==='t'?'厚み':'奥行';
-  return `<td style="text-align:right"><input class="dcell${isOv?' ov':''}" type="number" step="0.5" min="0" inputmode="decimal" value="${fmt(p[col])}" data-id="${p.id}" data-field="${field}" title="${p.name}の${label}（${isOv?'手動値・空欄で自動に戻る':'自動値・入力で上書き'}）"></td>`;
+  return `<td style="text-align:right"><input class="dcell${isOv?' ov':''}" type="number" step="0.5" min="0" max="1820" inputmode="decimal" value="${fmt(p[col])}" data-id="${p.id}" data-field="${field}" title="${p.name}の${label}（${isOv?'手動値・空欄で自動に戻る':'自動値・入力で上書き'}、最大1820mm）"></td>`;
 }
 function renderPartTable(){
   const {parts}=computeParts();
@@ -1081,7 +1110,7 @@ function buildPrint(){
   let rows='',last='';
   parts.forEach(p=>{
     if(p.grp!==last){rows+=`<tr style="background:#e3efe9"><td colspan="5" style="font-weight:700;color:#2f6d5b;padding:4px 8px">${p.grp}</td></tr>`;last=p.grp;}
-    rows+=`<tr><td style="padding:4px 8px;border-bottom:1px solid #eee">${p.name}</td>
+    rows+=`<tr><td style="padding:4px 8px;border-bottom:1px solid #eee">${p.name}<div style="font-size:10px;color:#8a8a8a">${p.note}</div></td>
       <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${fmt(p.w)}</td>
       <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${fmt(p.h)}</td>
       <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${fmt(p.t)}</td>
@@ -1138,7 +1167,9 @@ const ptable=document.getElementById('partTable');
 // live edit while typing: update override + drawings/strength, keep table (focus)
 ptable.addEventListener('input',e=>{
   const inp=e.target.closest('.dcell'); if(!inp)return;
-  const id=inp.dataset.id, field=inp.dataset.field, v=parseFloat(inp.value);
+  const id=inp.dataset.id, field=inp.dataset.field;
+  let v=parseFloat(inp.value);
+  if(!isNaN(v) && v>1820){ v=1820; inp.value=1820; } // no single part dimension exceeds a standard sheet's 1820mm
   const o=ovObjFor(id);
   if(inp.value.trim()===''||isNaN(v)||v<=0) delete o[field];
   else o[field]=v;
