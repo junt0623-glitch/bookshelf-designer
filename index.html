@@ -607,7 +607,7 @@ const HID='stroke-dasharray="5 3"';
 function render2d(){
   const G=geom();
   const {H,W,D,inW,inH,cols,divs,colShelves}=G;
-  const {topT,botT,sideLT,sideRT,bkT,topBotFace,botTopFace,sideTop,sideBottom,botGap,topX:tX,topW,botX:bX,botW}=G;
+  const {topT,botT,sideLT,sideRT,bkT,topBotFace,botTopFace,sideTop,sideBottom,botGap,topX:tX,topW,botX:bX,botW,topD,botD}=G;
   const botY0=(S.botMode==='in')?botGap:0;         // from-bottom base of bottom board
   const vw=svg.clientWidth||900, vh=svg.clientHeight||600;
   const pad=48;
@@ -660,19 +660,33 @@ function render2d(){
     segs.forEach(([a,b])=>{ const gh=b-a; if(gh>28 && col.width>60) comp+=compLbl(cxmm, TD((a+b)/2), fmt(gh)); });
   });
 
-  /* ---------- TOP plan (上面) : back edge at top ---------- */
+  /* ---------- TOP plan (上面) : back edge at top — hidden lines dashed+translucent ---------- */
   g+=R(topPX,topPY,W,D,C_LIGHT);
-  g+=R(topPX,topPY,W,bkT,C_BACK);
-  g+=R(topPX,topPY,sideLT,D,C_WOOD);
-  g+=R(topPX+W-sideRT,topPY,sideRT,D,C_WOOD);
-  divs.forEach(dv=>g+=R(topPX+dv.x-dv.t/2,topPY,dv.t,D,C_WOOD2));
+  // top board — always the visible surface (nothing sits above it in either join mode).
+  // anchored to the front edge (z=0), same as the 3D model, so offset from the rear (topPY) by (D-topD).
+  g+=R(topPX+tX, topPY+(D-topD), topW, topD, C_WOOD, C_EDGE, 1.4);
+  // side tops: visible/solid only when 挟まれる (flush with the top board); hidden/dashed when 乗る (covered by it)
+  {
+    const vis=S.topMode==='in';
+    g+=R(topPX,topPY,sideLT,D, vis?C_WOOD:WOODh, C_EDGE,1, vis?'':HID);
+    g+=R(topPX+W-sideRT,topPY,sideRT,D, vis?C_WOOD:WOODh, C_EDGE,1, vis?'':HID);
+  }
+  // dividers & back panel — always beneath the top board, hidden
+  divs.forEach(dv=>g+=R(topPX+dv.x-dv.t/2,topPY,dv.t,D,WOOD2h,C_EDGE,1,HID));
+  g+=R(topPX,topPY,W,bkT,BACKh,C_BACK,1,HID);
 
-  /* ---------- BOTTOM plan (底面) : front edge at top ---------- */
+  /* ---------- BOTTOM plan (底面) : front edge at top — hidden lines dashed+translucent ---------- */
   g+=R(botPX,botPY,W,D,C_LIGHT);
-  g+=R(botPX,botPY+D-bkT,W,bkT,C_BACK);
-  g+=R(botPX,botPY,sideLT,D,C_WOOD);
-  g+=R(botPX+W-sideRT,botPY,sideRT,D,C_WOOD);
-  divs.forEach(dv=>g+=R(botPX+dv.x-dv.t/2,botPY,dv.t,D,C_WOOD2));
+  // bottom board — always the visible surface (nothing sits below it in either join mode).
+  // anchored to the front edge (z=0 = botPY here), same as the 3D model.
+  g+=R(botPX+bX, botPY, botW, botD, C_WOOD, C_EDGE, 1.4);
+  {
+    const vis=S.botMode==='in';
+    g+=R(botPX,botPY,sideLT,D, vis?C_WOOD:WOODh, C_EDGE,1, vis?'':HID);
+    g+=R(botPX+W-sideRT,botPY,sideRT,D, vis?C_WOOD:WOODh, C_EDGE,1, vis?'':HID);
+  }
+  divs.forEach(dv=>g+=R(botPX+dv.x-dv.t/2,botPY,dv.t,D,WOOD2h,C_EDGE,1,HID));
+  g+=R(botPX,botPY+D-bkT,W,bkT,BACKh,C_BACK,1,HID);
 
   /* ---------- LEFT / RIGHT side views (hidden lines dashed+translucent) ---------- */
   const sideView=(bx,by,frontRight)=>{
@@ -739,10 +753,17 @@ function render2d(){
   const dimV_=(ly1,ly2,lx,txt)=>{const [x,y1]=P(lx,ly1),[,y2]=P(lx,ly2),my=(y1+y2)/2;
     return `<line x1="${x.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#4a544f" stroke-width="1" marker-start="url(#a)" marker-end="url(#a)"/>`+
       `<text x="${x.toFixed(1)}" y="${my.toFixed(1)}" fill="#1c2321" font-size="12" font-family="monospace" text-anchor="middle" transform="rotate(-90 ${x.toFixed(1)} ${my.toFixed(1)})" style="paint-order:stroke;stroke:${C_PAPER};stroke-width:4px">${txt}</text>`;};
+  // per-column width dimension (live — follows the dividers as they're dragged)
+  const dimHcol_=(lx1,lx2,ly,txt)=>{const [x1,y]=P(lx1,ly),[x2]=P(lx2,ly),mx=(x1+x2)/2;
+    return `<line x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#2f6d5b" stroke-width="1" marker-start="url(#a)" marker-end="url(#a)"/>`+
+      `<text x="${mx.toFixed(1)}" y="${(y-4).toFixed(1)}" fill="#2f6d5b" font-size="11" font-family="monospace" text-anchor="middle" style="paint-order:stroke;stroke:${C_PAPER};stroke-width:4px">${txt}</text>`;};
+  let colDims='';
+  cols.forEach(c=>{ if(c.width>0) colDims+=dimHcol_(fx+c.left, fx+c.left+c.width, fy+H+gap*0.22, fmt(c.width)); });
   const dims=
     dimH_(fx,fx+W,fy+H+gap*0.5,fmt(W))+
     dimV_(fy,fy+H,fx-gap*0.5,fmt(H))+
-    dimV_(topPY,topPY+D,topPX+W+gap*0.35,fmt(D));
+    dimV_(topPY,topPY+D,topPX+W+gap*0.35,fmt(D))+
+    colDims;
 
   FRONT={ox,oy,sc,fx,fy,H,W,zoom:Z2,panX:PX,panY:PY};
 
