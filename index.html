@@ -168,18 +168,18 @@
       <h2><span class="n">1</span>外形寸法</h2>
       <div class="field">
         <label>高さ H</label>
-        <div class="row-in"><input type="number" id="H" value="1800"><span class="unit">mm</span></div>
-        <input class="slider" type="range" id="H_s" min="300" max="2400" value="1800">
+        <div class="row-in"><input type="number" id="H" value="1800" step="0.5" inputmode="decimal"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="H_s" min="300" max="2400" value="1800" step="0.5">
       </div>
       <div class="field">
         <label>幅 W</label>
-        <div class="row-in"><input type="number" id="W" value="900"><span class="unit">mm</span></div>
-        <input class="slider" type="range" id="W_s" min="200" max="1800" value="900">
+        <div class="row-in"><input type="number" id="W" value="900" step="0.5" inputmode="decimal"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="W_s" min="200" max="1800" value="900" step="0.5">
       </div>
       <div class="field">
         <label>奥行 D</label>
-        <div class="row-in"><input type="number" id="D" value="300"><span class="unit">mm</span></div>
-        <input class="slider" type="range" id="D_s" min="120" max="600" value="300">
+        <div class="row-in"><input type="number" id="D" value="300" step="0.5" inputmode="decimal"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="D_s" min="120" max="600" value="300" step="0.5">
       </div>
     </div>
 
@@ -187,12 +187,12 @@
       <h2><span class="n">2</span>板の厚さ</h2>
       <div class="field">
         <label>板厚 T（共通）</label>
-        <div class="row-in"><input type="number" id="T" value="18"><span class="unit">mm</span></div>
-        <input class="slider" type="range" id="T_s" min="9" max="30" value="18">
+        <div class="row-in"><input type="number" id="T" value="18" step="0.5" inputmode="decimal"><span class="unit">mm</span></div>
+        <input class="slider" type="range" id="T_s" min="9" max="30" value="18" step="0.5">
       </div>
       <div class="field">
         <label>背面板の厚さ</label>
-        <div class="row-in"><input type="number" id="BT" value="6"><span class="unit">mm</span></div>
+        <div class="row-in"><input type="number" id="BT" value="6" step="0.5" inputmode="decimal"><span class="unit">mm</span></div>
       </div>
     </div>
 
@@ -278,6 +278,7 @@
           <div class="li"><span class="swatch" style="background:#7d94b8"></span>背面板</div>
           <div class="li"><span class="swatch" style="background:#2f6d5b"></span>ビス位置</div>
           <div class="li"><span class="swatch" style="background:#c0492e"></span>ダボ位置</div>
+          <div class="li" style="border-top:1px solid var(--line-soft);padding-top:6px;margin-top:2px">🖐 棚板・仕切りをドラッグで移動（10mm）</div>
         </div>
         <div class="hint3d" id="hint3d" style="display:none">ドラッグで回転 / ホイールでズーム</div>
       </div>
@@ -300,10 +301,16 @@
 <script>
 /* ================= state ================= */
 const S={H:1800,W:900,D:300,T:18,BT:6,shelves:4,dividers:1,even:true,
-         join:'screw',fpj:2,load:15,mat:'ply'};
+         join:'screw',fpj:2,load:15,mat:'ply',
+         shelfY:null,  // custom shelf centre Y (from bottom); null = even
+         divX:null};   // custom divider centre X (from left); null = even
 const MAT={ply:{name:'構造用合板',E:7000,label:'合板'},
            pine:{name:'パイン集成材',E:9000,label:'パイン集成'},
            mdf:{name:'MDF',E:3600,label:'MDF'}}; // E in N/mm^2 (approx)
+const SNAP=10; // drag snap in mm
+const snap=v=>Math.round(v/SNAP)*SNAP;
+// format mm allowing 0.5 steps, trimming trailing .0
+const fmt=v=>{const r=Math.round(v*2)/2;return Number.isInteger(r)?String(r):r.toFixed(1);};
 
 /* ================= bindings ================= */
 function bindNum(id){
@@ -320,9 +327,15 @@ document.querySelectorAll('[data-step]').forEach(b=>b.addEventListener('click',(
   const k=b.dataset.step,d=+b.dataset.d;
   const lim={shelves:[0,20],dividers:[0,6],fpj:[1,4]}[k];
   S[k]=Math.max(lim[0],Math.min(lim[1],S[k]+d));
+  // changing counts invalidates any dragged positions -> back to even layout
+  if(k==='shelves')S.shelfY=null;
+  if(k==='dividers')S.divX=null;
   document.getElementById(k+'_v').textContent=S[k];render();
 }));
-document.getElementById('evenShelf').addEventListener('change',e=>{S.even=e.target.checked;render();});
+document.getElementById('evenShelf').addEventListener('change',e=>{
+  S.even=e.target.checked;
+  if(S.even)S.shelfY=null; // reset dragged shelves to even spacing
+  render();});
 document.getElementById('joinSeg').addEventListener('click',e=>{
   if(!e.target.dataset.join)return;S.join=e.target.dataset.join;
   segOn('joinSeg',e.target);render();});
@@ -350,47 +363,69 @@ document.getElementById('toggleReport').addEventListener('click',()=>{
 document.getElementById('printBtn').addEventListener('click',buildPrint);
 
 function sync(){
-  document.getElementById('sizePill').textContent=`${S.H} × ${S.W} × ${S.D} mm`;
+  document.getElementById('sizePill').textContent=`${fmt(S.H)} × ${fmt(S.W)} × ${fmt(S.D)} mm`;
 }
 
 /* ================= geometry model ================= */
-// Returns list of parts with dims + a 2D front-elevation layout in mm.
+// Divider centre X positions (from left edge, interior coords).
+// Custom (dragged) positions win; otherwise evenly split the interior.
+function dividerCenters(){
+  const {W,T}=S, inW=W-2*T, n=S.dividers;
+  if(n<=0) return [];
+  if(S.divX && S.divX.length===n) return S.divX.slice();
+  const colW=(inW-n*T)/(n+1);
+  const xs=[]; let x=T;
+  for(let i=1;i<=n;i++){ x+=colW; xs.push(x+T/2); x+=T; }
+  return xs;
+}
+// Columns as {left,width} in interior coords, derived from divider positions.
+function columns(){
+  const {W,T}=S;
+  const centers=dividerCenters().slice().sort((a,b)=>a-b);
+  const faces=[T];
+  centers.forEach(c=>{faces.push(c-T/2);faces.push(c+T/2);});
+  faces.push(W-T);
+  const cols=[];
+  for(let i=0;i<faces.length;i+=2) cols.push({left:faces[i],width:Math.max(0,faces[i+1]-faces[i])});
+  return cols;
+}
+// Shelf centre Y positions (from bottom). Custom (dragged) win; else even.
+function shelfCenters(){
+  const {H,T}=S, inH=H-2*T, n=S.shelves;
+  if(n<=0) return [];
+  if(S.shelfY && S.shelfY.length===n) return S.shelfY.slice();
+  const ys=[]; for(let i=1;i<=n;i++) ys.push(T + inH*i/(n+1)); return ys;
+}
+// Returns list of parts with dims + geometry helpers, all in mm.
 function computeParts(){
   const {H,W,D,T,BT}=S;
-  const inW=W-2*T;                 // interior width between side panels
-  const inH=H-2*T;                 // interior height between top & bottom
+  const inW=W-2*T, inH=H-2*T;
+  const cols=columns();
   const parts=[];
-  // structural
   parts.push({grp:'構造板',name:'天板',w:W,h:D,t:T,qty:1,note:'側面板の上に載る'});
   parts.push({grp:'構造板',name:'地板',w:W,h:D,t:T,qty:1,note:'側面板の下に載る'});
   parts.push({grp:'構造板',name:'側面板',w:D,h:H,t:T,qty:2,note:'左右'});
-  // vertical dividers split interior width into columns
-  const cols=S.dividers+1;
-  const colW=(inW-S.dividers*T)/cols;
   if(S.dividers>0)
-    parts.push({grp:'仕切り板',name:'縦仕切り',w:D,h:inH,t:T,qty:S.dividers,note:`${cols}分割`});
-  // horizontal shelves span each column
-  if(S.shelves>0)
-    parts.push({grp:'仕切り板',name:'棚板(水平)',w:colW,h:D,t:T,qty:S.shelves*cols,
-      note:`各列 ${S.shelves} 段`});
-  // back panel
+    parts.push({grp:'仕切り板',name:'縦仕切り',w:D,h:inH,t:T,qty:S.dividers,note:`${cols.length}分割`});
+  if(S.shelves>0){
+    // group shelves by column width (0.5mm resolution) so a design with
+    // unequal columns lists the right cut sizes.
+    const byW={};
+    cols.forEach(c=>{const k=Math.round(c.width*2)/2;byW[k]=(byW[k]||0)+S.shelves;});
+    const keys=Object.keys(byW).map(Number).sort((a,b)=>b-a);
+    keys.forEach(w=>parts.push({grp:'仕切り板',name:'棚板(水平)',w:w,h:D,t:T,qty:byW[w],
+      note:keys.length>1?`幅${fmt(w)}の列 / ${S.shelves}段`:`各列 ${S.shelves} 段`}));
+  }
   parts.push({grp:'背面板',name:'背面板',w:W,h:H,t:BT,qty:1,note:'全体を覆う / 溝または当て'});
-  return {parts,inW,inH,colW,cols};
-}
-
-/* shelf Y positions (from bottom, interior) */
-function shelfYs(inH){
-  const n=S.shelves;const ys=[];
-  for(let i=1;i<=n;i++) ys.push(S.T + inH*i/(n+1));
-  return ys;
+  return {parts,inW,inH,cols};
 }
 
 /* ================= strength ================= */
 // simple beam deflection of a shelf as simply supported plate strip
 function strength(){
   const {D,T}=S;
-  const {colW}=computeParts();
-  const L=colW;                        // span mm
+  const {cols}=computeParts();
+  const L=cols.length?Math.max(...cols.map(c=>c.width)):(S.W-2*T); // worst (widest) span mm
   const b=D;                           // width mm
   const h=T;                           // thickness mm
   const E=MAT[S.mat].E;                // N/mm^2
@@ -409,119 +444,177 @@ function strength(){
   return {defl,L,ratio,level,tag};
 }
 
-/* ================= 2D SVG render ================= */
+/* ================= 2D SVG render (development / 展開図) ================= */
 const svg=document.getElementById('svg2d');
+const C_WOOD='#c69a6d', C_WOOD2='#d9b98c', C_BACK='#7d94b8',
+      C_EDGE='#8a6a44', C_LIGHT='#efe6d4', C_PAPER='#f6f3ea';
+// Front-view screen transform, published for the drag handler.
+let FRONT=null;
+
 function render2d(){
-  const {inW,inH,colW,cols}=computeParts();
-  const {H,W,T}=S;
-  // viewport fit
+  const {inW,inH,cols}=computeParts();
+  const {H,W,D,T,BT}=S;
   const vw=svg.clientWidth||900, vh=svg.clientHeight||600;
-  const pad=90;
-  const sc=Math.min((vw-2*pad)/W,(vh-2*pad)/H);
-  const ox=(vw-W*sc)/2, oy=(vh-H*sc)/2;
-  const X=x=>ox+x*sc, Y=y=>oy+(H-y)*sc; // flip Y so bottom is bottom
+  const pad=48;
+  const gap=Math.max(60, Math.max(W,H,D)*0.10); // layout gap between views (mm)
+  // cross / development layout: top & bottom above/below front, sides left/right
+  const LW=W+2*D+2*gap, LH=H+2*D+2*gap;
+  const sc=Math.min((vw-2*pad)/LW,(vh-2*pad)/LH);
+  const ox=(vw-LW*sc)/2, oy=(vh-LH*sc)/2;
+  // view top-left anchors (layout mm, y-down)
+  const fx=D+gap, fy=D+gap;                 // front
+  const topX=fx,  topY=0;                   // top plan (back edge up)
+  const botX=fx,  botY=fy+H+gap;            // bottom plan (front edge up)
+  const leftX=0,  leftY=fy;                 // left side (front edge = right)
+  const rightX=fx+W+gap, rightY=fy;         // right side (front edge = left)
+  const P=(lx,ly)=>[ox+lx*sc, oy+ly*sc];    // layout mm -> screen px
+
+  const divCenters=dividerCenters();
+  const shelfC=shelfCenters();
+
+  // rect in layout mm coords (y-down). extra = raw attrs (e.g. drag hooks)
+  const R=(lx,ly,w,h,fill,stroke=C_EDGE,sw=1,extra='')=>{
+    const [x,y]=P(lx,ly);
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(w*sc).toFixed(1)}" height="${(h*sc).toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" ${extra}/>`;
+  };
   let g='';
-  const rect=(x,y,w,h,fill,stroke='#8a6a44',sw=1)=>
-    `<rect x="${X(x).toFixed(1)}" y="${Y(y+h).toFixed(1)}" width="${(w*sc).toFixed(1)}" height="${(h*sc).toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
-  // sides
-  g+=rect(0,0,T,H,'#c69a6d');
-  g+=rect(W-T,0,T,H,'#c69a6d');
-  // top & bottom
-  g+=rect(0,H-T,W,T,'#c69a6d');
-  g+=rect(0,0,W,T,'#c69a6d');
-  // vertical dividers
-  const divXs=[];
-  for(let i=1;i<=S.dividers;i++){
-    const x=T + (colW+T)*i - T; // left edge of divider i
-    divXs.push(x);
-    g+=rect(x,T,T,inH,'#d9b98c');
-  }
-  // column left edges
-  const colLefts=[];
-  for(let c=0;c<cols;c++) colLefts.push(T + c*(colW+T));
-  // shelves per column
-  const ys=shelfYs(inH);
-  const fixPts=[]; // {x,y}
-  ys.forEach(yc=>{
-    colLefts.forEach(cl=>{
-      g+=rect(cl,yc-T/2,colW,T,'#d9b98c');
+
+  /* ---------- FRONT elevation (正面) ---------- */
+  g+=R(fx,fy,W,T,C_WOOD);                    // top board
+  g+=R(fx,fy+H-T,W,T,C_WOOD);                // bottom board
+  g+=R(fx,fy,T,H,C_WOOD);                    // left side
+  g+=R(fx+W-T,fy,T,H,C_WOOD);               // right side
+  // dividers (draggable horizontally)
+  divCenters.forEach((cxm,i)=>{
+    g+=R(fx+cxm-T/2, fy+T, T, inH, C_WOOD2, C_EDGE, 1,
+      `data-drag="div" data-i="${i}" style="cursor:ew-resize"`);
+  });
+  // shelves per column (draggable vertically; one row moves together)
+  shelfC.forEach((yc,i)=>{
+    const lyTop=H-yc-T/2;                     // top-down local y of shelf top
+    cols.forEach(c=>{
+      g+=R(fx+c.left, fy+lyTop, c.width, T, C_WOOD2, C_EDGE, 1,
+        `data-drag="shelf" data-i="${i}" style="cursor:ns-resize"`);
     });
   });
-  // joinery points: where shelves meet sides/dividers, and top/bottom meet sides
-  function edgeMarks(){
-    const marks=[];
-    // top/bottom to sides (4 corners)
-    [[T/2,H-T/2],[W-T/2,H-T/2],[T/2,T/2],[W-T/2,T/2]].forEach(p=>marks.push(p));
-    // shelves to each support (both ends of each column shelf)
-    ys.forEach(yc=>{
-      colLefts.forEach((cl,ci)=>{
-        marks.push([cl-T/2>0?cl- ( ci===0? T/2 : T/2):cl, yc]); // left support center approx
-        marks.push([cl+colW+ ( ci===cols-1? T/2 : T/2), yc]);
-      });
-    });
-    return marks;
-  }
-  // simpler, robust support-line marks:
-  const marks=[];
-  const supportXs=[T/2, W-T/2, ...divXs.map(x=>x+T/2)];
-  ys.forEach(yc=>supportXs.forEach(sx=>marks.push([sx,yc])));
-  // corners
-  [[T/2,T/2],[W-T/2,T/2],[T/2,H-T/2],[W-T/2,H-T/2]].forEach(p=>marks.push(p));
 
-  // draw fasteners
-  const fcolor = S.join==='dowel' ? '#c0492e' : '#2f6d5b';
-  const drawFastener=(x,y,kind)=>{
-    const cx=X(x),cy=Y(y),r=Math.max(2.4,3.2);
-    if(kind==='dowel'){
-      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#c0492e" stroke-width="1.6"/>`;
-    }
-    // screw: filled dot with cross
-    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#2f6d5b"/>`+
+  /* ---------- TOP plan (上面) : back edge at top ---------- */
+  g+=R(topX,topY,W,D,C_LIGHT);
+  g+=R(topX,topY,W,BT,C_BACK);               // back panel strip (rear)
+  g+=R(topX,topY,T,D,C_WOOD);                // left side
+  g+=R(topX+W-T,topY,T,D,C_WOOD);            // right side
+  divCenters.forEach(cxm=>g+=R(topX+cxm-T/2,topY,T,D,C_WOOD2));
+
+  /* ---------- BOTTOM plan (底面) : front edge at top ---------- */
+  g+=R(botX,botY,W,D,C_LIGHT);
+  g+=R(botX,botY+D-BT,W,BT,C_BACK);          // back panel strip (rear = bottom)
+  g+=R(botX,botY,T,D,C_WOOD);
+  g+=R(botX+W-T,botY,T,D,C_WOOD);
+  divCenters.forEach(cxm=>g+=R(botX+cxm-T/2,botY,T,D,C_WOOD2));
+
+  /* ---------- LEFT side (左側面) : front edge = right ---------- */
+  const sideView=(bx,by,frontRight)=>{
+    g+=R(bx,by,D,H,C_LIGHT);                  // side panel outline
+    g+=R(bx,by,D,T,C_WOOD);                   // top board edge
+    g+=R(bx,by+H-T,D,T,C_WOOD);               // bottom board edge
+    // back panel strip at the rear
+    g+=R(frontRight? bx : bx+D-BT, by, BT, H, C_BACK);
+    // shelves edge-on (front face open, butt to back panel)
+    shelfC.forEach(yc=>{
+      const lyTop=H-yc-T/2;
+      const sx= frontRight? bx+BT : bx;       // start behind back panel if it's on the left
+      g+=R(sx, by+lyTop, D-BT, T, C_WOOD2);
+    });
+  };
+  sideView(leftX,leftY,true);                 // back panel on the left
+  sideView(rightX,rightY,false);              // back panel on the right
+
+  /* ---------- fasteners on the FRONT view only ---------- */
+  const supportXs=[T/2, W-T/2, ...divCenters];
+  const marks=[];
+  shelfC.forEach(yc=>supportXs.forEach(sx=>marks.push([sx, H-yc]))); // shelf ends
+  [[T/2,T/2],[W-T/2,T/2],[T/2,H-T/2],[W-T/2,H-T/2]].forEach(p=>marks.push(p)); // corners
+  const drawFastener=(cx,cy,kind)=>{
+    const r=3.2;
+    if(kind==='dowel')
+      return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="none" stroke="#c0492e" stroke-width="1.6"/>`;
+    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="#2f6d5b"/>`+
            `<line x1="${cx-r-1.5}" y1="${cy}" x2="${cx+r+1.5}" y2="${cy}" stroke="#2f6d5b" stroke-width="1"/>`+
            `<line x1="${cx}" y1="${cy-r-1.5}" x2="${cx}" y2="${cy+r+1.5}" stroke="#2f6d5b" stroke-width="1"/>`;
   };
-  let fast='';let totalF=0;
-  marks.forEach(([x,y])=>{
+  let fast='', totalF=0;
+  marks.forEach(([mx,my])=>{
+    const [cx,cy]=P(fx+mx, fy+my);            // front local -> screen
     const n=S.fpj;
     for(let k=0;k<n;k++){
-      const off=(k-(n-1)/2)*(Math.min(S.D,120)*0.28);
-      // spread along depth not visible in front; nudge vertically instead for clarity
-      const yy=y+off*0.0+ (k-(n-1)/2)*10;
-      if(S.join==='both'){
-        fast+=drawFastener(x,y+(k-(n-1)/2)*12, k%2? 'dowel':'screw');
-      }else{
-        fast+=drawFastener(x,y+(k-(n-1)/2)*12,S.join);
-      }
+      const kind=S.join==='both'?(k%2?'dowel':'screw'):S.join;
+      fast+=drawFastener(cx, cy+(k-(n-1)/2)*12, kind);
       totalF++;
     }
   });
 
-  // dimension lines
-  function dim(x1,y1,x2,y2,label,side){
-    const a=`${X(x1)},${Y(y1)}`,b=`${X(x2)},${Y(y2)}`;
-    const mx=(X(x1)+X(x2))/2,my=(Y(y1)+Y(y2))/2;
-    return `<line x1="${X(x1)}" y1="${Y(y1)}" x2="${X(x2)}" y2="${Y(y2)}" stroke="#4a544f" stroke-width="1" marker-start="url(#a)" marker-end="url(#a)"/>`+
-      `<text x="${mx}" y="${my}" fill="#1c2321" font-size="12" font-family="monospace" text-anchor="middle" dominant-baseline="central" ${side==='v'?`transform="rotate(-90 ${mx} ${my})"`:''} style="paint-order:stroke;stroke:${'#f6f3ea'};stroke-width:4px">${label}</text>`;
-  }
-  // outer W dim (below), H dim (left)
-  const dimW=dim(0,-40/sc, W,-40/sc, S.W+'','h');
-  const dimH=dim(-40/sc,0, -40/sc,H, S.H+'','v');
+  /* ---------- view labels & dimensions ---------- */
+  const lab=(lx,ly,txt)=>{const [x,y]=P(lx,ly);
+    return `<text x="${x.toFixed(1)}" y="${(y-7).toFixed(1)}" fill="#4a544f" font-size="12" font-family="sans-serif" text-anchor="middle" font-weight="600">${txt}</text>`;};
+  const labels=
+    lab(fx+W/2,fy,'正面（立面）')+lab(topX+W/2,topY,'上面')+
+    lab(botX+W/2,botY,'底面')+lab(leftX+D/2,leftY,'左側面')+lab(rightX+D/2,rightY,'右側面');
+  const dimH_=(lx1,lx2,ly,txt)=>{const [x1,y]=P(lx1,ly),[x2]=P(lx2,ly),mx=(x1+x2)/2;
+    return `<line x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#4a544f" stroke-width="1" marker-start="url(#a)" marker-end="url(#a)"/>`+
+      `<text x="${mx.toFixed(1)}" y="${(y-4).toFixed(1)}" fill="#1c2321" font-size="12" font-family="monospace" text-anchor="middle" style="paint-order:stroke;stroke:${C_PAPER};stroke-width:4px">${txt}</text>`;};
+  const dimV_=(ly1,ly2,lx,txt)=>{const [x,y1]=P(lx,ly1),[,y2]=P(lx,ly2),my=(y1+y2)/2;
+    return `<line x1="${x.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#4a544f" stroke-width="1" marker-start="url(#a)" marker-end="url(#a)"/>`+
+      `<text x="${x.toFixed(1)}" y="${my.toFixed(1)}" fill="#1c2321" font-size="12" font-family="monospace" text-anchor="middle" transform="rotate(-90 ${x.toFixed(1)} ${my.toFixed(1)})" style="paint-order:stroke;stroke:${C_PAPER};stroke-width:4px">${txt}</text>`;};
+  const dims=
+    dimH_(fx,fx+W,fy+H+gap*0.5,fmt(W))+          // W under front
+    dimV_(fy,fy+H,fx-gap*0.5,fmt(H))+            // H left of front
+    dimV_(topY,topY+D,topX+W+gap*0.35,fmt(D));  // D right of top plan
+
+  FRONT={ox,oy,sc,fx,fy,H,W,T};
 
   svg.innerHTML=`
     <defs>
       <marker id="a" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
         <path d="M2,2 L8,5 L2,8" fill="none" stroke="#4a544f" stroke-width="1"/>
       </marker>
-      <pattern id="grain" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(90)">
-        <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(150,110,70,.25)" stroke-width="1"/>
-      </pattern>
     </defs>
-    ${g}
-    ${dimW}${dimH}
-    ${fast}
+    <g>${g}</g>
+    <g pointer-events="none">${labels}${dims}${fast}</g>
   `;
   return {totalF};
 }
+
+/* ---------- drag boards on the front view (10mm snap) ---------- */
+let dragState=null;
+svg.addEventListener('pointerdown',e=>{
+  const t=e.target.closest('[data-drag]');
+  if(!t||!FRONT)return;
+  dragState={type:t.dataset.drag,i:+t.dataset.i};
+  try{svg.setPointerCapture(e.pointerId);}catch(_){}
+  e.preventDefault();
+});
+svg.addEventListener('pointermove',e=>{
+  if(!dragState||!FRONT)return;
+  const {ox,oy,sc,fx,fy,H,W,T}=FRONT;
+  const rect=svg.getBoundingClientRect();
+  const px=e.clientX-rect.left, py=e.clientY-rect.top;
+  if(dragState.type==='shelf'){
+    const localY=(py-oy)/sc-fy;               // top-down within front
+    let yc=snap(H-localY);                     // centre from bottom, snapped 10mm
+    yc=Math.max(T+T/2, Math.min(H-T-T/2, yc));
+    if(!S.shelfY||S.shelfY.length!==S.shelves) S.shelfY=shelfCenters();
+    S.shelfY[dragState.i]=yc;
+  }else{
+    let xc=snap((px-ox)/sc-fx);
+    xc=Math.max(T+T, Math.min(W-T-T, xc));
+    if(!S.divX||S.divX.length!==S.dividers) S.divX=dividerCenters();
+    S.divX[dragState.i]=xc;
+  }
+  render();
+});
+const endDrag=e=>{ if(dragState){dragState=null; try{svg.releasePointerCapture(e.pointerId);}catch(_){}}};
+svg.addEventListener('pointerup',endDrag);
+svg.addEventListener('pointercancel',endDrag);
 
 /* ================= 3D render ================= */
 let R3;
@@ -564,7 +657,7 @@ function board(w,h,d,color){
 }
 function render3d(){
   if(!R3)return;
-  const {H,W,D,T,BT}=S;const {inW,inH,colW,cols}=computeParts();
+  const {H,W,D,T,BT}=S;const {inW,inH,cols}=computeParts();
   const grp=R3.grp;while(grp.children.length)grp.remove(grp.children[0]);
   const cx=-W/2,cy=-H/2,cz=-D/2; // center object
   const add=(x,y,z,w,h,d,c)=>{const b=board(w,h,d,c);b.position.set(x+w/2+cx,y+h/2+cy,z+d/2+cz);grp.add(b);};
@@ -577,13 +670,10 @@ function render3d(){
   add(0,0,0,W,T,D,WOOD);
   // back
   add(0,0,0,W,H,BT,BACK);
-  // dividers
-  for(let i=1;i<=S.dividers;i++){
-    const x=T+(colW+T)*i-T;add(x,T,0,T,inH,D,WOOD2);
-  }
-  // shelves
-  const colLefts=[];for(let c=0;c<cols;c++)colLefts.push(T+c*(colW+T));
-  shelfYs(inH).forEach(yc=>{colLefts.forEach(cl=>add(cl,yc-T/2,0,colW,T,D,WOOD2));});
+  // dividers (from shared geometry)
+  dividerCenters().forEach(cxm=>add(cxm-T/2,T,0,T,inH,D,WOOD2));
+  // shelves (from shared geometry — mirrors the 2D layout)
+  shelfCenters().forEach(yc=>{cols.forEach(c=>add(c.left,yc-T/2,0,c.width,T,D,WOOD2));});
   R3.place();
 }
 
@@ -593,7 +683,7 @@ function renderReport(){
   let rows='',last='',total=0;
   parts.forEach(p=>{
     if(p.grp!==last){rows+=`<tr class="grp"><td colspan="4">${p.grp}</td></tr>`;last=p.grp;}
-    const dim=`${Math.round(p.w)}×${Math.round(p.h)}×${p.t}`;
+    const dim=`${fmt(p.w)}×${fmt(p.h)}×${fmt(p.t)}`;
     rows+=`<tr><td>${p.name}</td><td class="num">${dim}</td><td class="num">${p.qty}</td><td>${p.note}</td></tr>`;
     total+=p.qty;
   });
@@ -613,7 +703,7 @@ function renderReport(){
       <span class="big">${st.defl.toFixed(1)}<span style="font-size:13px"> mm</span></span>
       <span class="tag ${st.tag}">${st.level}</span>
     </div>
-    <div style="font-size:11px;color:var(--ink-soft)">スパン ${Math.round(st.L)}mm / たわみ比 L÷${Math.round(st.ratio)}</div>
+    <div style="font-size:11px;color:var(--ink-soft)">最大スパン ${fmt(st.L)}mm / たわみ比 L÷${Math.round(st.ratio)}</div>
     <div class="bar"><i style="width:${pct}%;background:${barc}"></i></div>
     <p>荷重 ${S.load}kg を等分布とした単純梁近似。目安：L/250 以上で実用、L/360 以上で余裕。</p>
     ${msg}
@@ -622,7 +712,10 @@ function renderReport(){
 
 /* ================= print ================= */
 function buildPrint(){
-  const {parts,colW,cols}=computeParts();
+  const {parts,cols}=computeParts();
+  const spanTxt=cols.length?(cols.length>1
+      ? `${fmt(Math.min(...cols.map(c=>c.width)))}〜${fmt(Math.max(...cols.map(c=>c.width)))}`
+      : fmt(cols[0].width)):'—';
   const st=strength();
   // capture svg
   render2d();
@@ -631,9 +724,9 @@ function buildPrint(){
   parts.forEach(p=>{
     if(p.grp!==last){rows+=`<tr style="background:#e3efe9"><td colspan="5" style="font-weight:700;color:#2f6d5b;padding:4px 8px">${p.grp}</td></tr>`;last=p.grp;}
     rows+=`<tr><td style="padding:4px 8px;border-bottom:1px solid #eee">${p.name}</td>
-      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${Math.round(p.w)}</td>
-      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${Math.round(p.h)}</td>
-      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${p.t}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${fmt(p.w)}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${fmt(p.h)}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${fmt(p.t)}</td>
       <td style="padding:4px 8px;text-align:right;font-family:monospace;border-bottom:1px solid #eee">${p.qty}</td></tr>`;
   });
   const jn={screw:'ビス',dowel:'ダボ',both:'ビス＋ダボ併用'}[S.join];
@@ -643,7 +736,7 @@ function buildPrint(){
         <div><h1 style="margin:0;font-size:22px">本棚 設計図</h1>
         <div style="font-size:12px;color:#4a544f;letter-spacing:.1em">SHELF STUDIO — WORKING DRAWING</div></div>
         <div style="text-align:right;font-size:12px;font-family:monospace">
-          外形 ${S.H}×${S.W}×${S.D} mm<br>板厚 ${S.T}mm / 背面 ${S.BT}mm<br>${MAT[S.mat].name}
+          外形 ${fmt(S.H)}×${fmt(S.W)}×${fmt(S.D)} mm<br>板厚 ${fmt(S.T)}mm / 背面 ${fmt(S.BT)}mm<br>${MAT[S.mat].name}
         </div>
       </div>
       <div style="display:flex;gap:24px;margin-top:16px">
@@ -660,7 +753,7 @@ function buildPrint(){
           <h3 style="font-size:12px;letter-spacing:.1em;color:#4a544f;margin:16px 0 6px">接合仕様</h3>
           <div style="font-size:12px;line-height:1.7">
             固定方式：<b>${jn}</b> ／ 1接合部あたり ${S.fpj} 本<br>
-            棚割：${cols} 列 × 各 ${S.shelves} 段（棚スパン ${Math.round(colW)}mm）<br>
+            棚割：${cols.length} 列 × 各 ${S.shelves} 段（棚スパン ${spanTxt}mm）<br>
             縦仕切り ${S.dividers} 本
           </div>
           <h3 style="font-size:12px;letter-spacing:.1em;color:#4a544f;margin:16px 0 6px">強度チェック</h3>
