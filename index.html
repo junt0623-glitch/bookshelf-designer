@@ -348,6 +348,7 @@
           <div class="li"><span class="swatch" style="background:#c0492e"></span>ダボ位置</div>
           <div class="li"><span class="swatch" style="background:transparent;border:1px dashed #8a6a44"></span>破線＋半透明＝隠れて見えない部材</div>
           <div class="li" style="border-top:1px solid var(--line-soft);padding-top:6px;margin-top:2px">🖐 ドラッグで移動（10mm）／クリック選択→矢印で微調整（5mm）・段の増減</div>
+          <div class="li">選択して Delete／Backspace キーでも棚板・仕切り板を削除可</div>
           <div class="li">背面板は左右側面図で前後にドラッグ可（外形を超えない範囲）</div>
         </div>
         <div class="hint3d" id="hint3d" style="display:none">ドラッグで回転 / ホイールでズーム</div>
@@ -364,6 +365,9 @@
           <div class="nudge-shelf" id="nudgeShelfCtl" style="display:none">
             <button id="nd_delshelf" title="この列から棚板を1枚削除">− 段</button>
             <button id="nd_addshelf" title="この列に棚板を1枚追加">＋ 段</button>
+          </div>
+          <div class="nudge-shelf" id="nudgeDivCtl" style="display:none">
+            <button id="nd_deldiv" title="この仕切り板を削除（両隣の列は結合されます）">🗑 この仕切りを削除</button>
           </div>
         </div>
       </div>
@@ -919,11 +923,37 @@ function removeSelShelf(){
   SEL=arr.length?{type:'shelf',col:SEL.col,idx:Math.min(SEL.idx,arr.length-1)}:null;
   render(); updateNudge();
 }
-// keyboard arrows nudge the selection (unless typing in a field)
+// remove the selected vertical divider; the two columns it separated merge
+// back into one (their shelf boards stay in place, now spanning the merged column)
+function removeSelDivider(){
+  if(!SEL||SEL.type!=='div')return;
+  const G=geom(); if(!G.divs.length)return;
+  const removedX=G.divs[SEL.i].x;
+  const sortedXs=G.divs.map(d=>d.x).slice().sort((a,b)=>a-b);
+  const sortedIdx=sortedXs.indexOf(removedX);
+  ensureShelves();
+  if(S.colShelves && S.colShelves[sortedIdx]!=null && S.colShelves[sortedIdx+1]!=null)
+    S.colShelves.splice(sortedIdx,2,S.colShelves[sortedIdx].concat(S.colShelves[sortedIdx+1]));
+  else S.colShelves=null; // fall back to a clean even layout if state was inconsistent
+  ensureDivs();
+  S.divs.splice(SEL.i,1);
+  S.dividers=S.divs.length;
+  document.getElementById('dividers_v').textContent=S.dividers;
+  SEL=null;
+  render(); updateNudge();
+}
+// keyboard arrows nudge the selection; Delete/Backspace removes a shelf or divider
+// (unless typing in a field)
 addEventListener('keydown',e=>{
   if(!SEL)return;
   const a=document.activeElement; if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
   if(document.getElementById('view2d').style.display==='none')return;
+  if(e.key==='Delete'||e.key==='Backspace'){
+    e.preventDefault();
+    if(SEL.type==='shelf') removeSelShelf();
+    else if(SEL.type==='div') removeSelDivider();
+    return;
+  }
   const map={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0]}[e.key];
   if(!map)return; e.preventDefault(); nudge(map[0],map[1]);
 });
@@ -949,8 +979,9 @@ function updateNudge(){
   const vert=SEL.type==='shelf';
   ['up','down'].forEach(k=>document.getElementById('nd_'+k).disabled=!vert);
   ['left','right'].forEach(k=>document.getElementById('nd_'+k).disabled=vert);
-  // shelf add/remove only meaningful for a selected shelf
+  // shelf add/remove only meaningful for a selected shelf; divider delete only for a selected divider
   document.getElementById('nudgeShelfCtl').style.display=vert?'flex':'none';
+  document.getElementById('nudgeDivCtl').style.display=(SEL.type==='div')?'flex':'none';
 }
 // wire zoom + nudge controls
 document.getElementById('zoomIn').addEventListener('click',()=>zoomAt(svg.clientWidth/2,svg.clientHeight/2,1.2));
@@ -962,6 +993,7 @@ document.getElementById('nd_left').addEventListener('click',()=>nudge(-1,0));
 document.getElementById('nd_right').addEventListener('click',()=>nudge(1,0));
 document.getElementById('nd_addshelf').addEventListener('click',()=>{ if(SEL&&SEL.type==='shelf') addShelfToCol(SEL.col); });
 document.getElementById('nd_delshelf').addEventListener('click',removeSelShelf);
+document.getElementById('nd_deldiv').addEventListener('click',removeSelDivider);
 // clear a stale selection (e.g. after count changes) and refresh the pad
 function clearSelIfInvalid(){
   if(!SEL) return;
